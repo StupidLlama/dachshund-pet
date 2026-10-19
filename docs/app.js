@@ -55,9 +55,11 @@ onValue(ref(db, ".info/serverTimeOffset"), (s) => { offset = s.val() || 0; });
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
-    signInAnonymously(auth).catch(() => {
+    signInAnonymously(auth).catch((err) => {
       show("pair");
-      $("pair-msg").textContent = "Can't reach the internet. Check your connection and reload.";
+      $("pair-msg").textContent = err && err.code === "auth/admin-restricted-operation"
+        ? "Sign-in is turned off for this app. Turn on Anonymous sign-in in Firebase."
+        : "Can't reach the internet. Check your connection and reload.";
     });
     return;
   }

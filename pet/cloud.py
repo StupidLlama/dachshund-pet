@@ -235,6 +235,8 @@ class CloudClient:
                 pass
             if e.code in (401, 403):
                 raise PermissionError(detail or str(e)) from None
+            if "ADMIN_ONLY_OPERATION" in detail:
+                raise CloudError("Anonymous sign-in is off in Firebase") from None
             raise CloudError(f"Server error {e.code}") from None
         return json.loads(raw.decode("utf-8")) if raw else None
 
