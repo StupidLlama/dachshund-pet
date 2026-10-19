@@ -271,7 +271,7 @@ Firebase + 手機 PWA 雙人訊息：兩個人用配對碼綁定，手機傳訊�
   2. device_bash：`git add -A && git -c user.name=StupidLlama -c user.email=stupidllamareligion@gmail.com commit -m "..."`，再 `git bundle create .push.bundle origin/main..main`（`.push.bundle` 已在 .gitignore）
   3. `device_stage_files` 把 `.push.bundle` 拿到雲端
   4. 雲端：`add_repo`（owner StupidLlama、repo dachshund-pet、access push）→ clone 到 `/home/claude/dachshund-pet` → `git fetch <bundle> main:incoming && git merge --ff-only incoming && git push origin main`
-  5. device_bash：`git fetch origin`（公開 repo 讀得到）更新 origin/main，刪掉 `.push.bundle`
+  5. device_bash：電腦端連不到 GitHub（proxy 403），所以 push 成功後用 `git update-ref refs/remotes/origin/main main` 手動更新 origin/main，再刪掉 `.push.bundle`。Evan 自己在 VS Code 按「同步」或 `git pull` 也會更新
 - commit 訊息用英文、說清楚改了什麼
 
 ## 新對話開始時
