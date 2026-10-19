@@ -95,6 +95,8 @@ HANDS_OFF |= LIST_STATES
 ALERT_FOCUS_SEC = 3.0       # 番茄鐘專心中：「!」顯示幾秒
 MSG_RUN_SPEED = 240.0       # 跑去螢幕中間的速度（px/s，以 160px 狗為準）
 ALERT_RED = QColor("#E2553B")
+ALERT_SIZE = 0.36           # 「!」字的大小（× S）
+ALERT_THICK = 0.035         # 「!」加粗多少（紅色描邊寬，× S）
 
 
 def _ease_io(k: float) -> float:
@@ -1384,19 +1386,23 @@ class PetWindow(QWidget):
         return False
 
     def _paint_alert(self, p: QPainter, box: QRectF) -> None:
-        """頭上的紅色「!」：出現時彈一下，之後輕輕上下晃。"""
+        """頭上的紅色「!」：用 Evan 手寫字的「!」，塗紅、加粗、深色外框；出現時彈一下，之後輕輕上下晃。"""
         S, k = self.S, self.k
         age = time.monotonic() - self.alert_t0
         pop = 1.0 + 0.35 * math.exp(-age * 6) * math.cos(age * 18)
         bob = math.sin(age * 7) * 0.02 * S
+        f = QFont(QApplication.font())                     # 整個 app 的字型 = EvanHand
+        f.setPixelSize(max(8, int(ALERT_SIZE * S * pop)))
+        fm = QFontMetrics(f)
         cx = box.center().x()
-        bottom = max(0.27 * S, self._sprite_y() + box.top() - 0.04 * S + bob)
-        h, w = 0.21 * S * pop, 0.075 * S * pop
+        base = max(fm.ascent() + 0.04 * S, self._sprite_y() + box.top() - 0.03 * S + bob)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(cx - w / 2, bottom - h, w, h * 0.66), w / 2, w / 2)
-        path.addEllipse(QPointF(cx, bottom - w * 0.55), w * 0.55, w * 0.55)
+        path.addText(cx - fm.horizontalAdvance("!") / 2, base, f, "!")
+        thick = ALERT_THICK * S                             # 加粗：沿著字的邊描一圈紅色
+        ink = max(1.5, 2 * k)
+        p.strokePath(path, QPen(QColor(30, 27, 22), thick + 2 * ink, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.strokePath(path, QPen(ALERT_RED, thick, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         p.fillPath(path, ALERT_RED)
-        p.strokePath(path, QPen(QColor(30, 27, 22), max(1.5, 2 * k), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
 
     # ================================================================== 滑鼠
     def mousePressEvent(self, e) -> None:

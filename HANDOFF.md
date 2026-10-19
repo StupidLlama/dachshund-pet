@@ -311,7 +311,7 @@ rooms/{room}/status/{slot}   {pet: 狗心跳, delivered: 狗收到的最新 ts, 
 - `on_message(msg)` → `msg_queue`；`_tick_msgs()` 每幀決定什麼時候冒：搬清單、被拎著、在空中、叼滑鼠（`HANDS_OFF`）時等；**專心中**（番茄鐘 focus 或正走去番茄）→ `alert_until = now + 3 秒` + `notify_fn`（系統匣通知，每則新訊息通知一次）；**休息中** → 原地汪 + 泡泡；其他 → `_start_msg_seq()`：hop（紅「!」）→ `msg_go`（run 跑到這個螢幕中間，速度 max(活潑度×2.6, 240)）→ `_msg_bark()`（面向前、汪、happy 跳）→ `_show_next_msg()` → `msg_wait`（坐著，直到點掉）
 - 點狗 / 點泡泡 = `dismiss_message()` → `seen_fn(msg)`（cloud.mark_seen）；還有下一則就小跳一下馬上換（不再跑、不再汪）。跑過去的路上點狗 = 直接冒；被拎走 = 落地的地方冒（`_choose_next` 處理）
 - `MsgBubble`（`bubble.py`）：可以點的泡泡，第一行紅色小字「名字:」、右上「+N more」，訊息自動換行（英文照單字、中文照字，`wrap_text()`），最寬 250×k；左鍵 = 關、右鍵 = `replyRequested`（開訊息視窗）
-- 訊息泡泡在的時候 `say()` 不冒（避免兩個泡泡疊在一起）；紅「!」是程式畫的（`_paint_alert`，`ALERT_RED #E2553B`）
+- 訊息泡泡在的時候 `say()` 不冒（避免兩個泡泡疊在一起）；紅「!」用 EvanHand 的「!」字，塗紅 + 加粗 + 深色外框（`_paint_alert`；`ALERT_RED #E2553B`、大小 `ALERT_SIZE`、粗細 `ALERT_THICK`，Evan 要求）
 - `clear_messages()`：解除配對時清掉
 - 常數在 `pet_window.py` 上面：`ALERT_FOCUS_SEC`、`MSG_RUN_SPEED`
 
