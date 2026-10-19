@@ -368,6 +368,11 @@ class CloudClient:
             raise CloudError("That code doesn't work. Ask for a new one!")
         room, slot = info["room"], info["slot"]
         uid = self.state["uid"]
+        if self.paired and self.state["room"] != room:      # 換到新的一組：先離開舊的
+            try:
+                self._req("DELETE", self._room(f"members/{uid}"))
+            except Exception:
+                pass
         try:
             self._req("PUT", f"rooms/{room}/members/{uid}",
                       {"slot": slot, "kind": "pet", "joined": SV_TIMESTAMP, "code": code})
@@ -375,6 +380,8 @@ class CloudClient:
             raise CloudError("That code doesn't work. Ask for a new one!") from None
         name = clean_name(my_name)
         old = self.state["slot"] == slot and self.state["room"] == room
+        if not old:
+            self.state.update(test_mode=False)
         self._set_paired(room, slot, name or self.state["my_name"], "", keep_seen=old)
         if name:
             self._req("PUT", f"rooms/{room}/names/{slot}", name)

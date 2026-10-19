@@ -371,8 +371,7 @@ class PetApp(QObject):
         if not c.has_partner or c.test_mode:
             sub.addAction("🧪 Test with my phone...", lambda: self.open_pair("test"))
             sub.addAction("💌 Invite a friend...", lambda: self.open_pair("invite"))
-        if not c.paired:
-            sub.addAction("🔑 I have a code...", lambda: self.open_pair("join"))
+        sub.addAction("🔑 I have a code...", lambda: self.open_pair("join"))
         if c.paired:
             sub.addSeparator()
             sub.addAction("⚙ Pairing...", lambda: self.open_pair("settings"))

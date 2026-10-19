@@ -336,13 +336,17 @@ $("name-dlg").addEventListener("close", async () => {
   catch { $("send-msg").textContent = "Couldn't save your name."; }
 });
 
-$("unpair-btn").addEventListener("click", async () => {
+async function leave(question) {
   toggleMenu(false);
-  if (!confirm(`Stop messaging with ${partnerName()} on this phone?`)) return;
+  if (!confirm(question)) return;
   try { await remove(ref(db, `rooms/${room}/members/${uid}`)); } catch { /* 離線也讓這支手機解除 */ }
   forget();
   openPair();
-});
+}
+$("unpair-btn").addEventListener("click", () =>
+  leave(hasFriend() ? `Stop messaging with ${partnerName()} on this phone?` : "Unlink this phone from the dog?"));
+$("newcode-btn").addEventListener("click", () =>
+  leave("Enter a new code? This phone will leave the current pair."));
 
 // ------------------------------------------------------------------ 離線用
 if ("serviceWorker" in navigator) {

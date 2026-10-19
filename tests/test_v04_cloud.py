@@ -221,7 +221,15 @@ fb.set(f"rooms/{room_d}/members/{mine.state['uid']}", {"slot": "a", "kind": "pho
 assert D.who_joined()["my_phones"] == 1
 inv = D.create_pair("")
 assert not D.test_mode and fb.get(f"codes/{inv['code']}")["slot"] == "b"
+# 已經在一組裡，輸入別組的碼 → 離開舊的、加入新的
+E = client("E")
+code_e = E.create_pair("Erin")["code"]
+old_room = D.state["room"]
+D.join(code_e, "Evan")
+assert D.state["room"] == E.state["room"] and D.state["slot"] == "b" and not D.test_mode
+assert fb.get(f"rooms/{old_room}/members/{D.state['uid']}") is None
 D.unpair()
+E.stop()
 assert not D.paired and not D.test_mode
 ok("link phone without a friend, test mode, who_joined, invite ends test mode")
 

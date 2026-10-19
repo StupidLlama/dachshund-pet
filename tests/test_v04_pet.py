@@ -336,7 +336,7 @@ dlg3 = UI.PairDialog(fc3); dlg3.open_mode("join"); dlg3.name.setText("x"); dlg3.
 assert "doesn't work" in status_text(dlg3)
 # 已經有朋友時「I have a code」→ 提示先解除
 fc4 = FakeCloud(); fc4.paired = fc4.has_partner = True; fc4.partner_name = "Amy"
-dlg4 = UI.PairDialog(fc4); dlg4.open_mode("join"); assert "code_in" not in dlg4.__dict__
+dlg4 = UI.PairDialog(fc4); dlg4.open_mode("join"); assert "code_in" in dlg4.__dict__   # 已配對也能輸入新碼
 # 碼過期提示
 dlg.open_mode("invite"); dlg.name.setText("Evan"); dlg._request_code(); dlg.code_exp = UI._now() - 1; dlg._tick(); assert "expired" in str(dlg.count_lab.setText.call_args)
 assert UI.fmt_code("123456") == "123 456"
@@ -381,10 +381,10 @@ assert {"📱 Link my phone...", "🧪 Test with my phone...", "💌 Invite a fr
 assert not any(x.startswith("💌 Messages") for x in L)
 fake.cloud.paired = True
 menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
-assert "No friend yet" in L and "⚙ Pairing..." in L and "🔑 I have a code..." not in L
+assert "No friend yet" in L and "⚙ Pairing..." in L and "🔑 I have a code..." in L
 fake.cloud.has_partner = True; fake.cloud.partner_name = "Amy"
 menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
-assert "💌 Messages with Amy..." in L and "💌 Invite a friend..." not in L and "Friend: Amy" in L
+assert "💌 Messages with Amy..." in L and "💌 Invite a friend..." not in L and "Friend: Amy" in L and "🔑 I have a code..." in L
 assert not any("Reply" in x for x in L)
 fake.cloud.test_mode = True; fake.cloud.partner_name = "Phone"
 menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)

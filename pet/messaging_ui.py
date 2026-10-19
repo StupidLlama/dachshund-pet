@@ -243,12 +243,11 @@ class PairDialog(QDialog):
 
     # ---- 朋友那邊：輸入碼
     def _view_join(self) -> None:
-        if self.cloud.has_partner and not self.cloud.test_mode:
-            self.lay.addWidget(_label(f"You're already paired with {self.cloud.partner_name}. "
-                                      "Unpair first (⚙ Pairing) to join someone else.", 16, "hint", True))
-            self.lay.addWidget(self._row("stretch", _button("Close", self.accept, "light")))
-            return
         self.lay.addWidget(_label("Type the code your friend gave you.", 16, "hint", True))
+        if self.cloud.paired:
+            who = self.cloud.partner_name if self.cloud.has_partner else "your phone"
+            warn = _label(f"Joining a new code leaves your current pair with {who}.", 15, "error", True)
+            self.lay.addWidget(warn)
         self.code_in = QLineEdit()
         self.code_in.setMaxLength(6)
         self.code_in.setPlaceholderText("123456")

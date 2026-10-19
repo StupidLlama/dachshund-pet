@@ -338,6 +338,7 @@ Evan 覺得連手機的流程太繞（要先配對朋友才能連自己的手機
 - `cloud.py`：`ensure_room(name)`（沒房間就開一個，自己是 a）、`link_phone()`（自己 slot 的碼，**不用先有朋友**）、`test_phone()`（對方 slot 的碼 + `test_mode=True`）、`create_pair()` / `friend_code()` 會結束測試模式、`who_joined()`（自己這邊幾支手機 + 對方名字，配對視窗輪詢用）、`has_partner`、`test_mode`（存在 cloud.json）。對方還沒名字時，心跳每次（60 秒）都抓名字；收到訊息但還沒名字也會先抓
 - `PairDialog.open_mode(mode)`：link / test / invite / join / settings 五頁；沒房間時 link/test/invite 先問名字；顯示碼的頁面有大字碼、倒數、編號步驟（每種模式不同）、每 3 秒 `who_joined` → 「🎉 Your phone is linked!」/「🎉 ○○ joined!」
 - 手機網頁：標題「Link to a dog」、說明寫狗的選單路徑；還沒有朋友時標題「Hi, ○○!」、說明「Your phone is linked. Waiting for a friend to join.」、送出鍵和快捷訊息先停用、空白處提示怎麼邀請朋友。`sw.js` 快取版本 v0.4.2
+- **v0.4.2**：「🔑 I have a code」永遠在選單裡；已配對時輸入頁上方紅字提醒會離開目前的配對，`join()` 會先刪掉舊房間的成員資料再加入新的（也結束測試模式）。手機「⋯」多「Enter a new code」（離開目前配對 → 回到輸入碼畫面）。`sw.js` v0.4.3
 - 測試模式之後邀請真的朋友：測試手機要先在手機上「⋯ → Unpair」（規則不讓狗刪別人的成員資料），朋友加入後名字會蓋掉 Phone
 
 ### v0.4 要請 Evan 確認的（桌寵端 Python 還沒在 Windows 上連過真的 Firebase）
