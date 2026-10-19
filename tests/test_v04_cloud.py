@@ -240,6 +240,7 @@ ok("rename everywhere, heartbeat")
 # ---------------------------------------------------------------- 離開聊天室、手機的移出、全部重來
 B.leave_room(rid)
 assert fb.get(f"rooms/{rid}/slots/b") is None and fb.get(f"homes/{B.state['home']}/rooms/{rid}") is None
+assert fb.get(f"rooms/{rid}/names/b") is None                     # 名字也拿掉了
 assert B.rooms() == []
 try:
     B.send(rid, "x")

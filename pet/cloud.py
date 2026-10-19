@@ -512,10 +512,11 @@ class CloudClient:
         """離開一個聊天室（朋友那邊會看到你不在了）。"""
         slots = self.state.room(rid).get("slots") or ""
         for s in slots:
-            try:
-                self._req("DELETE", f"rooms/{rid}/slots/{s}")
-            except Exception:
-                pass
+            for part in ("names", "slots"):               # 先刪名字（規則：還在位置上才能改名字），朋友那邊就不會再顯示你
+                try:
+                    self._req("DELETE", f"rooms/{rid}/{part}/{s}")
+                except Exception:
+                    pass
         try:
             self._req("DELETE", self._home(f"rooms/{rid}"))
         except Exception:
