@@ -16,6 +16,7 @@ class QFont:
     def setBold(self, b): self._bold = b
     def setFamilies(self, f): self._fam = f
     def family(self): return self._fam[0]
+    def families(self): return list(self._fam)
 
 class QFontMetricsF:
     def __init__(self, f): self.px = f.pixelSize()

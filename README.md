@@ -1,6 +1,6 @@
 # 🐶 臘腸狗桌寵 Dachshund Pet
 
-Windows 桌寵：會在整個螢幕上 8 方向亂逛的臘腸狗。（目前版本 v0.3）
+Windows 桌寵：會在整個螢幕上 8 方向亂逛的臘腸狗。（目前版本 v0.4）
 
 ## 執行
 
@@ -68,6 +68,25 @@ py main.py
 - 狗搬清單的時候點牠不會打斷（只會搖尾巴冒愛心）；番茄鐘進行中點標籤，清單會自己滑出來，狗繼續陪你專心
 - 「叮」是 `assets/sounds/ding.wav`，想換成別的聲音就換這個檔（要是 .wav）
 - 番茄和葉子是 `assets/pomodoro/tomato.png`、`leaf.png`（512×512、同一個中心點、葉子最長那片朝上）
+
+## v0.4 跟朋友互傳訊息 💌
+
+兩個人配對之後，可以從桌寵或手機傳訊息到對方的狗頭上。
+
+| 功能 | 怎麼用 |
+|---|---|
+| 配對 | 右鍵「Pair with a friend...」→ 打名字 →「Make a code」，把 6 位數的碼給朋友。朋友在他的狗右鍵「Pair...」輸入，或用手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入。碼 10 分鐘內有效 |
+| 連自己的手機 | 配對後右鍵「Pair...」→「Link my phone」，手機打開上面的網址輸入那組碼。手機可以「加入主畫面」當 App 用 |
+| 收到訊息 | 狗頭上冒紅色「!」→ 跑到螢幕中間 → 汪！→ 泡泡一直顯示到你點掉（點泡泡或點狗）。好幾則會一則一則來 |
+| 番茄鐘專心中 | 只冒「!」幾秒 + Windows 通知，泡泡等休息時間才出現 |
+| 回覆 / 看紀錄 | 右鍵「Messages with ○○...」（最近 20 則 + 打字回覆）；在訊息泡泡上按右鍵也能直接回覆 |
+| 手機 | 聊天室：完整紀錄、快捷訊息、看得到對方的狗醒著沒、訊息「Sent / Delivered / Seen」 |
+
+- 一則最多 60 字。英數字用手寫字，中文在電腦上用標楷體、在手機上用霞鶩文楷
+- 對方的狗沒開也可以傳，下次開機就會收到
+- 汪的聲音是 `assets/sounds/bark.wav`（程式合成的），想換成真的狗叫就換這個檔
+- 配對資料存在 `%APPDATA%\DachshundPet\cloud.json`
+- 用 Firebase Realtime Database（免費方案）。安全規則在 `firebase/database.rules.json`，由 `tools/build_rules.py` 產生
 
 ## 自訂圖示
 

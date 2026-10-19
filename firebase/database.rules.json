@@ -1,0 +1,115 @@
+{
+  "rules": {
+    "codes": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && ( (newData.exists() && (!data.exists() || data.child('exp').val() < now) && newData.child('by').val() === auth.uid && root.child('rooms').child(newData.child('room').val()).child('members').child(auth.uid).exists()) || (!newData.exists() && data.exists() && (data.child('by').val() === auth.uid || data.child('exp').val() < now)) )",
+        ".validate": "$code.matches(/^[0-9]{6}$/) && newData.hasChildren(['room', 'slot', 'by', 'exp'])",
+        "room": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "slot": {
+          ".validate": "newData.isString() && newData.val().matches(/^[ab]$/)"
+        },
+        "by": {
+          ".validate": "newData.isString()"
+        },
+        "exp": {
+          ".validate": "newData.isNumber() && newData.val() > now && newData.val() <= now + 1200000"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "rooms": {
+      "$room": {
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()",
+        "meta": {
+          ".write": "auth != null && !data.exists()",
+          ".validate": "newData.hasChildren(['created', 'size'])",
+          "created": {
+            ".validate": "newData.val() === now"
+          },
+          "size": {
+            ".validate": "newData.isNumber() && newData.val() === 2"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "members": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && ( !newData.exists() || (data.exists() && data.child('slot').val() === newData.child('slot').val()) || (!data.exists() && !root.child('rooms').child($room).child('meta').exists() && newData.child('slot').val() === 'a') || (!data.exists() && newData.child('code').isString() && root.child('codes').child(newData.child('code').val()).child('room').val() === $room && root.child('codes').child(newData.child('code').val()).child('slot').val() === newData.child('slot').val() && root.child('codes').child(newData.child('code').val()).child('exp').val() > now) )",
+            ".validate": "newData.hasChildren(['slot', 'kind', 'joined'])",
+            "slot": {
+              ".validate": "newData.isString() && newData.val().matches(/^[ab]$/)"
+            },
+            "kind": {
+              ".validate": "newData.isString() && newData.val().matches(/^(pet|phone)$/)"
+            },
+            "joined": {
+              ".validate": "newData.isNumber()"
+            },
+            "code": {
+              ".validate": "newData.isString()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "names": {
+          "$slot": {
+            ".write": "auth != null && newData.parent().parent().child('members').child(auth.uid).child('slot').val() === $slot",
+            ".validate": "$slot.matches(/^[ab]$/) && newData.isString() && newData.val().length >= 1 && newData.val().length <= 20"
+          }
+        },
+        "messages": {
+          ".indexOn": [
+            "ts"
+          ],
+          "$msg": {
+            ".write": "auth != null && !data.exists() && root.child('rooms').child($room).child('members').child(auth.uid).exists()",
+            ".validate": "newData.hasChildren(['from', 'text', 'ts', 'via'])",
+            "from": {
+              ".validate": "newData.val() === root.child('rooms').child($room).child('members').child(auth.uid).child('slot').val()"
+            },
+            "text": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 60"
+            },
+            "ts": {
+              ".validate": "newData.val() === now"
+            },
+            "via": {
+              ".validate": "newData.isString() && newData.val().matches(/^(pet|phone)$/)"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "status": {
+          "$slot": {
+            ".write": "auth != null && root.child('rooms').child($room).child('members').child(auth.uid).child('slot').val() === $slot",
+            "pet": {
+              ".validate": "newData.isNumber() && newData.val() <= now"
+            },
+            "delivered": {
+              ".validate": "newData.isNumber() && newData.val() <= now"
+            },
+            "seen": {
+              ".validate": "newData.isNumber() && newData.val() <= now"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}

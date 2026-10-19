@@ -25,6 +25,17 @@ def hand_font(px: float, bold: bool = False) -> QFont:
     return f
 
 
+def msg_font(px: float) -> QFont:
+    """訊息用的字：英數字用 EvanHand，中文用標楷體（手寫感，Windows 繁中內建），再不行用正黑體、emoji。"""
+    f = hand_font(px)
+    fams = list(f.families()) if hasattr(f, "families") else []
+    first = fams[0] if fams else f.family()
+    cjk = ["DFKai-SB", "標楷體", "KaiTi", "BiauKai"]
+    rest = [x for x in fams[1:] if x not in cjk]
+    f.setFamilies([first] + cjk + rest + ["Microsoft JhengHei UI", "Segoe UI Emoji"])
+    return f
+
+
 def left_round_rect(r: QRectF, radius: float) -> QPainterPath:
     """只有左上、左下是圓角的長方形（清單和紅標籤：右邊貼著螢幕邊）。"""
     rad = min(radius, r.height() / 2, r.width() / 2)

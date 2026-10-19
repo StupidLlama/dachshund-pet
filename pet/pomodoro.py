@@ -89,15 +89,21 @@ def make_ding_wav(path: Path, sr: int = 44100) -> Path:
 
 
 class Ding:
-    """播 assets/sounds/ding.wav（沒有就合成一個）。Windows 用內建的 winsound（最穩），其他系統用 QSoundEffect。"""
+    """播 assets/sounds/ding.wav（沒有就合成一個）。Windows 用內建的 winsound（最穩），其他系統用 QSoundEffect。
+    v0.4：也拿來播汪汪（sounds.Bark = 同一個類別換檔名和合成器）。"""
+    FILE = "ding.wav"
+
+    @staticmethod
+    def make(path: Path) -> Path:
+        return make_ding_wav(path)
 
     def __init__(self, assets_dir: Path, fallback_dir: Path):
-        self.path = Path(assets_dir) / "sounds" / "ding.wav"
+        self.path = Path(assets_dir) / "sounds" / self.FILE
         if not self.path.is_file():
             try:
-                make_ding_wav(self.path)
+                self.make(self.path)
             except OSError:                      # assets 唯讀（打包後）→ 存到 %APPDATA%
-                self.path = make_ding_wav(Path(fallback_dir) / "ding.wav")
+                self.path = self.make(Path(fallback_dir) / self.FILE)
         self._effect = None
 
     def play(self) -> None:

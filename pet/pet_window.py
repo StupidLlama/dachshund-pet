@@ -20,6 +20,12 @@ v0.3
               （搬清單時 busy：點狗只會冒愛心，不會打斷）。每天 wake_time 自動拉一次。
     番茄鐘    狗坐在番茄左邊安靜陪你；時間到番茄搖、狗跳、叮一聲，自動休息，休息完再叮一聲後停止。
     對話泡泡  頭上冒的字改成圓角泡泡（bubble.py，獨立視窗，靠近螢幕邊會往內移）。
+
+v0.4 雙人訊息（cloud.py 收訊息，app.py 交給 on_message()）
+    收到      頭上紅色「!」跳一下 → 跑到螢幕中間 → 汪！→ 訊息泡泡（MsgBubble）一直顯示到被點掉
+    點掉      點泡泡或點狗 = 已讀（seen_fn）；還有下一則就小跳一下馬上換下一則
+    番茄鐘    專心中：「!」閃 3 秒 + Windows 通知，泡泡等休息時間（或番茄鐘結束）才冒；休息中：原地汪 + 泡泡
+    等一下    搬清單、被拎著、在空中、叼滑鼠時先排隊，做完再來
 """
 from __future__ import annotations
 
@@ -27,13 +33,14 @@ import math
 import random
 import time
 from collections import deque
+from typing import Callable
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QCursor, QFont, QFontMetrics, QGuiApplication, QPainter,
                            QPainterPath, QPen, QRegion)
 from PySide6.QtWidgets import QApplication, QWidget
 
-from .bubble import Bubble
+from .bubble import Bubble, MsgBubble
 from .dog_model import ANIMS, DIR_ANGLE, DIRS8, ELEVATION_DEG, FRONT_ANGLE, GROUND_Y, angle_to_dir
 from .mood import Mood
 from .pomodoro import Pomodoro, fmt_mmss
@@ -81,8 +88,13 @@ BACK_SEC = 0.45             # 搬完往後退多久
 PULL_BACK = 0.30            # 拉完往後退多遠（× S）
 PUSH_BACK = 0.38            # 推完往後退多遠（× S）
 LIST_STATES = {"wake", "list_go", "list_bite", "list_tug", "list_back", "list_nudge", "list_push"}
-FAST_STATES |= LIST_STATES | {"pomo_go"}
+FAST_STATES |= LIST_STATES | {"pomo_go", "msg_go"}
 HANDS_OFF |= LIST_STATES
+
+# ---- v0.4 收到訊息
+ALERT_FOCUS_SEC = 3.0       # 番茄鐘專心中：「!」顯示幾秒
+MSG_RUN_SPEED = 240.0       # 跑去螢幕中間的速度（px/s，以 160px 狗為準）
+ALERT_RED = QColor("#E2553B")
 
 
 def _ease_io(k: float) -> float:
@@ -208,6 +220,19 @@ class PetWindow(QWidget):
         self.tomato_win = None
         self.ding_sound = None
         self.tomato_hide_at = 0.0
+
+        # v0.4 訊息
+        self.msg_bubble = MsgBubble(self.k)
+        self.msg_bubble.clicked.connect(self.dismiss_message)
+        self.msg_queue: deque = deque()                     # 還沒顯示的訊息
+        self.msg_cur: dict | None = None                    # 正在顯示的訊息
+        self.msg_seq = False                                # 正在「! → 跑 → 汪」的路上
+        self.msg_notified = False                           # 專心中這一批已經發過通知
+        self.alert_until = 0.0                              # 紅色「!」顯示到什麼時候
+        self.alert_t0 = 0.0
+        self.bark_sound = None
+        self.seen_fn: Callable[[dict], None] = lambda m: None
+        self.notify_fn: Callable[[str, str], None] = lambda title, text: None
 
         center = QGuiApplication.primaryScreen().availableGeometry().center()
         self.gx, self.gy = float(center.x()), float(center.y())
@@ -349,16 +374,21 @@ class PetWindow(QWidget):
         return img.pixelColor(int(x), int(y)).alpha() > 40
 
     def say(self, text: str, color: str = "#5A3A1A", life: float = 1.4) -> None:
-        """頭上冒對話泡泡（v0.3 起是圓角泡泡，color 不用了，留著是為了相容舊的呼叫）。"""
+        """頭上冒對話泡泡（v0.3 起是圓角泡泡，color 不用了，留著是為了相容舊的呼叫）。
+        v0.4：訊息泡泡顯示中就不冒（兩個泡泡會疊在一起）。"""
+        if self.msg_bubble.active:
+            return
         self.bubble.show_text(text, max(0.9, life) + 0.2)
         self._place_bubble()
 
     def _place_bubble(self) -> None:
-        if not self.bubble.active:
-            return
         tip_x = self.gx + (-1 if self.facing_left else 1) * self.S * 0.08
         tip_y = self.y() + self._sprite_y() + self.S * 0.12
-        self.bubble.follow(tip_x, tip_y, self._screen_here().availableGeometry())
+        area = self._screen_here().availableGeometry()
+        if self.bubble.active:
+            self.bubble.follow(tip_x, tip_y, area)
+        if self.msg_bubble.active:
+            self.msg_bubble.follow(tip_x, tip_y, area)
 
     @property
     def busy(self) -> bool:
@@ -407,6 +437,7 @@ class PetWindow(QWidget):
         getattr(self, f"_update_{self.state}")(dt)
         self._update_fx(dt)
         self._tick_pomo(dt, now)
+        self._tick_msgs(now)
         if self.mood.enabled and self.mood.tick(dt, now - self.last_interaction):
             self.save_mood()
         self._place()
@@ -460,6 +491,12 @@ class PetWindow(QWidget):
     def _choose_next(self) -> None:
         if self.pomo.active or self.pomo_pending:            # 番茄鐘：回到番茄旁邊乖乖坐著
             self._go_pomo_spot()
+            return
+        if self.msg_seq:                                     # 跑去中間的路上被拎走了：在這裡直接冒
+            self._show_next_msg()
+            return
+        if self.msg_cur is not None:                         # 訊息還沒被點掉：乖乖坐著等你看
+            self._set_state("msg_wait", anim="sit")
             return
         now = time.monotonic()
         idle_for = now - self.last_interaction
@@ -934,7 +971,7 @@ class PetWindow(QWidget):
         self._raise_all()
 
     def _raise_all(self) -> None:
-        """疊放順序：清單 < 輸入框 < 狗（嘴和鼻子蓋住紙邊）< 番茄 < 泡泡。"""
+        """疊放順序：清單 < 輸入框 < 狗（嘴和鼻子蓋住紙邊）< 番茄 < 泡泡 < 訊息泡泡。"""
         if self.todo_win is not None and self.todo_win.strip.isVisible():
             self.todo_win.strip.raise_()
         self.raise_()
@@ -942,6 +979,8 @@ class PetWindow(QWidget):
             self.tomato_win.raise_()
         if self.bubble.isVisible():
             self.bubble.raise_()
+        if self.msg_bubble.isVisible():
+            self.msg_bubble.raise_()
 
     def toggle_list(self) -> None:
         """點紅標籤：收著 → 拉出來；開著 → 推回去。"""
@@ -1201,6 +1240,164 @@ class PetWindow(QWidget):
         self.add_hearts(4)
         self.say(text, life=2.2 if end else 1.6)
 
+    # ================================================================== v0.4 訊息
+    def attach_messages(self, bark) -> None:
+        self.bark_sound = bark
+
+    def on_message(self, msg: dict) -> None:
+        """cloud.py 收到朋友的訊息（{id, name, text, ts}）。排隊，_tick_msgs 決定什麼時候冒。"""
+        if self.msg_cur is not None and self.msg_cur.get("id") == msg.get("id"):
+            return
+        if any(m.get("id") == msg.get("id") for m in self.msg_queue):
+            return
+        self.msg_queue.append(msg)
+        self.msg_notified = False                           # 專心中：每一則新訊息都通知一次
+        if self.msg_bubble.active and self.msg_cur is not None:
+            self.msg_bubble.show_msg(self.msg_cur["name"], self.msg_cur["text"], len(self.msg_queue))
+
+    def clear_messages(self) -> None:
+        """解除配對：清掉所有還沒看的訊息。"""
+        self.msg_queue.clear()
+        self.msg_cur = None
+        self.msg_seq = False
+        self.alert_until = 0.0
+        self.msg_bubble.clear()
+        if self.state in ("msg_go", "msg_wait"):
+            self._enter_idle()
+
+    def _msg_focus_mode(self) -> bool:
+        """番茄鐘專心中（或正走去番茄旁邊）：訊息先不冒。"""
+        return (self.pomo.active and self.pomo.phase == "focus") or self.pomo_pending is not None
+
+    def _tick_msgs(self, now: float) -> None:
+        if self.msg_cur is not None or self.msg_seq or not self.msg_queue:
+            return
+        if self.busy or self.state in HANDS_OFF:            # 搬清單、被拎著、在空中、叼滑鼠：等一下
+            return
+        if self._msg_focus_mode():
+            if not self.msg_notified:
+                self.msg_notified = True
+                self.alert_until, self.alert_t0 = now + ALERT_FOCUS_SEC, now
+                m, n = self.msg_queue[-1], len(self.msg_queue)
+                self.notify_fn(f"Message from {m['name']}", m["text"] + (f"  (+{n - 1} more)" if n > 1 else ""))
+            return
+        if self.pomo.active:                                # 休息時間：不跑，原地汪 + 泡泡
+            self._play_bark()
+            self.add_hearts(1)
+            self._show_next_msg()
+            return
+        self._start_msg_seq()
+
+    def _play_bark(self) -> None:
+        if self.bark_sound is not None:
+            self.bark_sound.play()
+
+    def _start_msg_seq(self) -> None:
+        """紅色「!」跳一下 → 跑到螢幕中間 → 汪 → 冒泡泡。"""
+        self.msg_seq = True
+        self.target = None
+        self.zoom_targets = []
+        self.alert_until, self.alert_t0 = float("inf"), time.monotonic()
+        self._touch()
+        self.lift_v = -330 * self.k
+        self.after_hop = self._msg_run
+        self._set_state("hop", anim="idle")
+
+    def _msg_run(self) -> None:
+        c = self._screen_here().availableGeometry().center()
+        self.msg_target = self._clamp_point(float(c.x()), float(c.y()))
+        if math.hypot(self.msg_target[0] - self.gx, self.msg_target[1] - self.gy) < 0.3 * self.S:
+            self._msg_bark()
+        else:
+            self._set_state("msg_go", anim="run")
+
+    def _update_msg_go(self, dt: float) -> None:
+        if not self.msg_seq:
+            self._enter_idle()
+            return
+        if self._move_toward(*self.msg_target, max(self._act["speed"] * 2.6, MSG_RUN_SPEED), dt):
+            self._msg_bark()
+
+    def _msg_bark(self) -> None:
+        self._set_direction("down")
+        self._play_bark()
+        self.lift_v = -280 * self.k
+        self.after_hop = self._show_next_msg
+        self._set_state("hop", anim="happy")
+
+    def _show_next_msg(self) -> None:
+        self.after_hop = None
+        self.msg_seq = False
+        self.alert_until = 0.0
+        if not self.msg_queue:
+            if self.state in ("msg_go", "msg_wait", "hop"):
+                self._enter_idle()
+            return
+        m = self.msg_queue.popleft()
+        self.msg_cur = m
+        self.bubble.clear()
+        self.msg_bubble.show_msg(m["name"], m["text"], len(self.msg_queue))
+        self._place_bubble()
+        self.msg_bubble.raise_()
+        self._touch()
+        if not (self.pomo.active or self.pomo_pending):
+            self.target = None
+            self._set_state("msg_wait", anim="sit")
+        elif self.state in ("hop", "msg_go", "msg_wait"):
+            self._go_pomo_spot()                            # 番茄鐘：回到番茄旁邊
+
+    def _update_msg_wait(self, dt: float) -> None:
+        if self.msg_cur is None:
+            self._enter_idle()
+
+    def dismiss_message(self) -> None:
+        """點泡泡或點狗：這則看完了（已讀），還有下一則就跳一下換下一則。"""
+        m = self.msg_cur
+        if m is None:
+            return
+        self.msg_cur = None
+        self.msg_bubble.clear()
+        self.seen_fn(m)
+        self._touch()
+        if self.msg_queue:
+            self.msg_seq = True
+            if self.state not in HANDS_OFF:
+                self.lift_v = -220 * self.k
+                self.after_hop = self._show_next_msg
+                self._set_state("hop", anim="happy")
+            return
+        self.add_hearts(2)
+        back = self._go_pomo_spot if (self.pomo.active or self.pomo_pending) else (lambda: self._set_state("idle", 1.0))
+        if self.state == "hop":
+            self.after_hop = back                           # 跳完再回去
+        elif self.state not in HANDS_OFF:
+            back()
+
+    def _msg_click(self) -> bool:
+        """點狗：有訊息就先處理訊息。回傳 True = 這一下被訊息用掉了。"""
+        if self.msg_cur is not None:
+            self.dismiss_message()
+            return True
+        if self.msg_seq:                                    # 還在跑過去的路上：直接冒出來
+            self._show_next_msg()
+            return True
+        return False
+
+    def _paint_alert(self, p: QPainter, box: QRectF) -> None:
+        """頭上的紅色「!」：出現時彈一下，之後輕輕上下晃。"""
+        S, k = self.S, self.k
+        age = time.monotonic() - self.alert_t0
+        pop = 1.0 + 0.35 * math.exp(-age * 6) * math.cos(age * 18)
+        bob = math.sin(age * 7) * 0.02 * S
+        cx = box.center().x()
+        bottom = max(0.27 * S, self._sprite_y() + box.top() - 0.04 * S + bob)
+        h, w = 0.21 * S * pop, 0.075 * S * pop
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(cx - w / 2, bottom - h, w, h * 0.66), w / 2, w / 2)
+        path.addEllipse(QPointF(cx, bottom - w * 0.55), w * 0.55, w * 0.55)
+        p.fillPath(path, ALERT_RED)
+        p.strokePath(path, QPen(QColor(30, 27, 22), max(1.5, 2 * k), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+
     # ================================================================== 滑鼠
     def mousePressEvent(self, e) -> None:
         self._touch()
@@ -1269,6 +1466,8 @@ class PetWindow(QWidget):
         self.press_global = None
         if self.busy:
             return
+        if self._msg_click():
+            return
         if self._focusing():
             self.say("Shh... focusing", life=0.9)
             return
@@ -1279,6 +1478,8 @@ class PetWindow(QWidget):
 
     def _on_click(self) -> None:
         if self.busy:
+            return
+        if self._msg_click():
             return
         if self._focusing():
             self.say("Shh... focusing", life=0.9)
@@ -1391,6 +1592,9 @@ class PetWindow(QWidget):
                 y = cy + math.sin(a) * self.S * 0.05
                 p.fillPath(_star_path(x, y, self.S * 0.045), QColor(245, 200, 40))
                 p.strokePath(_star_path(x, y, self.S * 0.045), QPen(QColor(150, 110, 20), 1))
+
+        if self.alert_until > time.monotonic():
+            self._paint_alert(p, box)
 
         for x, y, age in self.hearts:
             if age < 0:

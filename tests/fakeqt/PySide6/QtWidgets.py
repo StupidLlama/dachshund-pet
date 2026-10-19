@@ -45,8 +45,21 @@ class QDialog(QWidget):
     def accept(self): pass
     def reject(self): pass
 
-QHBoxLayout = MagicMock(name="QHBoxLayout")
-QVBoxLayout = MagicMock(name="QVBoxLayout")
+class _Item:
+    def __init__(self, w=None, l=None): self._w, self._l = w, l
+    def widget(self): return self._w
+    def layout(self): return self._l
+
+class _Layout(_Anything):
+    def __init__(self, *a): self._items = []
+    def addWidget(self, w, *a): self._items.append(_Item(w=w))
+    def addLayout(self, l, *a): self._items.append(_Item(l=l))
+    def addStretch(self, *a): self._items.append(_Item())
+    def count(self): return len(self._items)
+    def takeAt(self, i): return self._items.pop(i)
+
+QHBoxLayout = _Layout
+QVBoxLayout = _Layout
 QFormLayout = MagicMock(name="QFormLayout")
 QDialogButtonBox = MagicMock(name="QDialogButtonBox")
 QLabel = MagicMock(name="QLabel")
@@ -56,6 +69,8 @@ QMenu = MagicMock(name="QMenu")
 QSystemTrayIcon = MagicMock(name="QSystemTrayIcon")
 QInputDialog = MagicMock(name="QInputDialog")
 QMessageBox = MagicMock(name="QMessageBox")
+QPushButton = MagicMock(name="QPushButton")
+QTextBrowser = MagicMock(name="QTextBrowser")
 
 
 def __getattr__(name):

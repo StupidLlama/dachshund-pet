@@ -55,6 +55,16 @@ def assets_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "assets"
 
 
+def firebase_config_path() -> Path:
+    """v0.4：firebase/config.json（Firebase 的公開設定）。打包成 exe 時優先用 exe 旁邊的。"""
+    if getattr(sys, "frozen", False):
+        beside = Path(sys.executable).parent / "firebase" / "config.json"
+        if beside.is_file():
+            return beside
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "firebase" / "config.json"
+    return Path(__file__).resolve().parent.parent / "firebase" / "config.json"
+
+
 class Settings:
     def __init__(self, path: Path | None = None):
         self.path = Path(path) if path else data_dir() / "settings.json"

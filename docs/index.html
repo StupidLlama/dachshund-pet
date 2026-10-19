@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Dachshund</title>
+<meta name="description" content="Send messages to your friend's desktop dachshund.">
+<meta name="theme-color" content="#FFFDF6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dachshund">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 載入中 -->
+<main id="loading" class="screen center" aria-live="polite">
+  <img class="dog" src="icons/icon-192.png" alt="" width="96" height="96">
+  <p class="muted">Waking up the dog...</p>
+</main>
+
+<!-- 配對 -->
+<main id="pair" class="screen center" hidden>
+  <form id="pair-form" class="paper-card" autocomplete="off">
+    <img class="dog" src="icons/icon-192.png" alt="" width="88" height="88">
+    <h1>Pair with your friend</h1>
+    <p class="muted">Right-click a dachshund and pick <b>Pair...</b> to get a 6-number code.</p>
+    <label for="code-in">Code</label>
+    <input id="code-in" class="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" required>
+    <label for="name-in">Your name</label>
+    <input id="name-in" maxlength="20" placeholder="e.g. Amy" required>
+    <button id="pair-btn" type="submit">Join</button>
+    <p id="pair-msg" class="note" role="alert"></p>
+  </form>
+</main>
+
+<!-- 聊天 -->
+<main id="chat" class="screen" hidden>
+  <header class="top">
+    <img src="icons/icon-192.png" alt="" width="44" height="44">
+    <div class="who">
+      <h1 id="partner">Your friend</h1>
+      <p id="presence" class="muted"><span class="dot"></span><span id="presence-text">...</span></p>
+    </div>
+    <button id="menu-btn" class="icon-btn" aria-label="Settings" aria-haspopup="true" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/></svg>
+    </button>
+    <div id="menu" class="menu" role="menu" hidden>
+      <button role="menuitem" id="rename-btn">Change my name</button>
+      <button role="menuitem" id="unpair-btn" class="danger">Unpair</button>
+    </div>
+  </header>
+
+  <section id="thread" class="thread" aria-live="polite" aria-label="Messages">
+    <p id="empty" class="empty muted" hidden>No messages yet. Say hi to their dog!</p>
+  </section>
+
+  <footer class="compose">
+    <div id="quick" class="quick" aria-label="Quick messages"></div>
+    <form id="send-form" class="send-row" autocomplete="off">
+      <label class="sr-only" for="msg-in">Message</label>
+      <input id="msg-in" maxlength="60" placeholder="Write a message...">
+      <span id="count" class="count muted" aria-hidden="true">0/60</span>
+      <button id="send-btn" type="submit">Send</button>
+    </form>
+    <p id="send-msg" class="note" role="alert"></p>
+  </footer>
+</main>
+
+<dialog id="name-dlg">
+  <form method="dialog" id="name-form">
+    <h2>Your name</h2>
+    <input id="rename-in" maxlength="20" required>
+    <div class="row">
+      <button value="cancel" class="light" formnovalidate>Cancel</button>
+      <button value="ok" id="rename-ok">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

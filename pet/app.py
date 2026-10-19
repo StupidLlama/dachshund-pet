@@ -1,5 +1,6 @@
 """組裝：設定、圖片、桌寵視窗、右鍵選單、系統匣圖示、取名；
-v0.3：待辦清單、每天起床拉清單、番茄鐘、Settings 視窗。"""
+v0.3：待辦清單、每天起床拉清單、番茄鐘、Settings 視窗。
+v0.4：雙人訊息（cloud.py 連 Firebase；配對 / 訊息視窗在 messaging_ui.py）。"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,16 +11,19 @@ from PySide6.QtGui import QAction, QActionGroup, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QInputDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import convenience as conv
+from .cloud import CloudClient, load_config
 from .fonts import load_custom_font
 from .pet_window import PetWindow
 from .pomodoro import Ding, TomatoWindow
-from .settings import EXTRAS, Settings, assets_dir, data_dir
+from .settings import EXTRAS, Settings, assets_dir, data_dir, firebase_config_path
+from .sounds import Bark
 from .settings_dialog import SettingsDialog, parse_hhmm
 from .sprites import BASE_SIZE, SpriteLibrary
 from .todo import TodoStore
 from .todo_window import TodoWindow
 
 WAKE_CHECK_MS = 20_000      # 多久檢查一次「到起床時間了沒」
+CLOUD_PUMP_MS = 200         # 多久把網路執行緒的結果拿到主執行緒處理一次
 
 ACTIVITY_LABELS = [("calm", "Calm"), ("normal", "Normal"), ("hyper", "Hyper")]
 PRANK_LABELS = [("off", "Off"), ("rare", "Rarely (about every 30 min)"),
@@ -44,6 +48,12 @@ class PetApp(QObject):
         self.todo = TodoStore(data_dir() / "todo.json")
         self.todo_win = TodoWindow(self.todo, self.sprites.size)
         self.pet.attach_pomodoro(TomatoWindow(assets_dir(), self.sprites.size), Ding(assets_dir(), data_dir()))
+        # v0.4：訊息
+        self.cloud = None
+        self.pair_dlg = None
+        self.msg_win = None
+        self.cloud_online = False
+        self._start_cloud()
         self.tray = None
         self._build_tray()
         icon = self._icon_file()   # 每次啟動都更新圖示（桌面捷徑會用到）
@@ -175,6 +185,7 @@ class PetApp(QObject):
         menu.addAction("Sleep", self.pet.sleep)
         menu.addSeparator()
         self._list_pomo_actions(menu)
+        self._msg_actions(menu)
         menu.addSeparator()
         self._common_actions(menu)
         menu.exec(pos)
@@ -202,6 +213,7 @@ class PetApp(QObject):
         m.addAction(label, self.pet.come_here)
         m.addSeparator()
         self._list_pomo_actions(m)
+        self._msg_actions(m)
         m.addSeparator()
         self._common_actions(m)
 
@@ -290,7 +302,95 @@ class PetApp(QObject):
         self.settings.set_extra(key, on)
         self.pet.extras_changed()
 
+    # ------------------------------------------------------------------ v0.4 訊息
+    def _start_cloud(self) -> None:
+        try:
+            cfg = load_config(firebase_config_path())
+            self.cloud = CloudClient(cfg, data_dir() / "cloud.json")
+        except Exception as e:                   # 沒有設定檔、壞掉：訊息功能關掉，狗照常
+            print("Messages are off:", e)
+            self.cloud = None
+            return
+        self.pet.attach_messages(Bark(assets_dir(), data_dir()))
+        self.pet.seen_fn = lambda m: self.cloud.mark_seen(m["ts"])
+        self.pet.notify_fn = self._notify_msg
+        self.pet.msg_bubble.replyRequested.connect(lambda: self.open_messages(reply=True))
+        self.cloud_timer = QTimer(self)
+        self.cloud_timer.timeout.connect(self._pump)
+        self.cloud_timer.start(CLOUD_PUMP_MS)
+
+    def _pump(self) -> None:
+        """把網路執行緒的結果拿到主執行緒處理（Qt 的東西只能在主執行緒碰）。"""
+        for kind, value in self.cloud.drain():
+            try:
+                if kind == "message":
+                    self.pet.on_message(value)
+                    if self.msg_win is not None and self.msg_win.isVisible():
+                        self.msg_win.add(value)
+                elif kind == "result":
+                    callback, result, err = value
+                    if callback is not None:
+                        callback(result, err)
+                elif kind == "online":
+                    self.cloud_online = bool(value)
+                    if self.msg_win is not None:
+                        self.msg_win.refresh_title(self.cloud_online)
+                elif kind == "unpaired":
+                    self.pet.clear_messages()
+                    self._cloud_changed()
+                elif kind in ("paired", "names"):
+                    self._cloud_changed()
+            except Exception as e:               # 一個壞掉的事件不要讓狗當掉
+                print("cloud event error:", kind, e)
+
+    def _cloud_changed(self) -> None:
+        if self.msg_win is not None:
+            self.msg_win.refresh_title()
+        if self.pair_dlg is not None and self.pair_dlg.isVisible() and not self.pair_dlg.code:
+            self.pair_dlg.show_home()
+
+    def _msg_actions(self, menu: QMenu) -> None:
+        """狗身上和系統匣的選單都有。"""
+        if self.cloud is None:
+            return
+        if self.cloud.paired:
+            menu.addAction(f"Messages with {self.cloud.partner_name}...", self.open_messages)
+            if self.pet.msg_cur is not None:
+                menu.addAction("Reply...", lambda: self.open_messages(reply=True))
+            menu.addAction("Pair...", self.open_pair)
+        else:
+            menu.addAction("Pair with a friend...", self.open_pair)
+
+    def open_pair(self) -> None:
+        from .messaging_ui import PairDialog
+        if self.pair_dlg is None:
+            self.pair_dlg = PairDialog(self.cloud, on_change=self._cloud_changed)
+        else:
+            self.pair_dlg.code = ""
+            self.pair_dlg.show_home()
+        self.pair_dlg.show()
+        self.pair_dlg.raise_()
+        self.pair_dlg.activateWindow()
+
+    def open_messages(self, reply: bool = False) -> None:
+        if self.cloud is None:
+            return
+        if not self.cloud.paired:
+            self.open_pair()
+            return
+        from .messaging_ui import MessagesWindow
+        if self.msg_win is None:
+            self.msg_win = MessagesWindow(self.cloud)
+        self.msg_win.show_window(focus_reply=reply)
+
+    def _notify_msg(self, title: str, text: str) -> None:
+        """番茄鐘專心中收到訊息：Windows 通知（狗不跑）。"""
+        if self.tray and self.tray.isVisible():
+            self.tray.showMessage(title, text, self.tray.icon(), 6000)
+
     def quit(self) -> None:
+        if self.cloud is not None:
+            self.cloud.stop()
         self.pet.save_mood()
         self.todo.save()
         self.hotkey.unregister()
