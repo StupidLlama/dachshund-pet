@@ -303,3 +303,58 @@ select {
 }
 
 .top .who p { margin: 0; font-size: 15px; }
+
+/* ---------------------------------------------------------------- 對齊橫線（Evan 要求）
+   首頁、加朋友、設定：每一行字都坐在藍線上，輸入框和按鈕剛好放在兩條線中間。
+   做法：每一列高度 = 一行（--line），字靠下對齊（離線 --sit），
+   會換行的段落用 line-height = 一行，再整段往下挪到坐在線上。 */
+:root { --line: 48px; --sit: 7px; }
+.paper-scroll { padding-top: 0; padding-bottom: calc(var(--line) * 2); }
+.paper-scroll h2, .paper-scroll p, .paper-scroll ul, .paper-scroll li, .paper-scroll form { margin: 0; }
+.paper-scroll .block { display: block; margin: 0 0 var(--line); }
+
+/* 單行的字：一列高、字靠下 */
+.paper-scroll .section-title,
+.paper-scroll .note,
+.paper-scroll .empty {
+  height: var(--line); line-height: 1.15; display: flex; align-items: flex-end; padding-bottom: var(--sit); text-align: left;
+}
+.paper-scroll .note:empty { height: var(--line); }
+/* 會換行的說明：每一行都是一列高，整段往下挪坐到線上 */
+.paper-scroll .small-text {
+  line-height: var(--line); position: relative; top: calc(var(--line) / 2 - var(--sit) - 0.32em);
+  margin-bottom: 0;
+}
+.paper-scroll .big-code { height: calc(var(--line) * 2); line-height: 1; display: flex; align-items: flex-end; padding-bottom: var(--sit); }
+
+/* 輸入框、按鈕、下拉選單：剛好放在一列裡（上下各留 4px） */
+.paper-scroll input:not([type=checkbox]), .paper-scroll button, .paper-scroll select {
+  height: calc(var(--line) - 8px); min-height: 0; margin: 4px 0; padding-top: 0; padding-bottom: 0;
+}
+.paper-scroll .block > input, .paper-scroll .block > button, .paper-scroll form > input, .paper-scroll form > button { display: block; }
+.paper-scroll .row-input { height: var(--line); align-items: center; }
+.paper-scroll .row-input > * { margin: 0; }
+.paper-scroll input.code.small { font-size: 28px; }
+
+/* 聊天室列表：一個朋友 = 兩列（名字 + 時間 / 最後一則），分隔就是藍線本身 */
+.room-list li + li { border-top: none; }
+.paper-scroll .room-list button {
+  height: calc(var(--line) * 2); margin: 0; padding: 0 6px; border-radius: 0;
+  grid-template-rows: var(--line) var(--line); align-items: end; gap: 0 10px;
+}
+.room-list .room-name, .room-list .room-time, .room-list .room-preview { padding-bottom: var(--sit); line-height: 1.15; }
+.room-list button:hover { background: linear-gradient(transparent 2px, rgba(231, 195, 116, .18) 2px calc(100% - 2px), transparent 0); }
+.paper-scroll .add-btn { margin: 4px 0; }
+
+/* 待辦清單：一項一列，方框和字都坐在線上 */
+.todo-list li { height: var(--line); min-height: 0; align-items: flex-end; padding-bottom: var(--sit); border: none; }
+.todo-list label { min-height: 0; height: 100%; align-items: flex-end; line-height: 1.15; }
+.todo-list input[type=checkbox] { margin-bottom: 1px; }
+.paper-scroll .todo-list .del { height: calc(var(--line) - 8px); margin: 0 0 calc(var(--sit) * -1 + 2px); align-self: flex-end; }
+.todo-empty { line-height: 1.15; }
+
+/* 時間設定：一個設定一列 */
+.field { height: var(--line); align-items: flex-end; }
+.field > span:first-child { padding-bottom: var(--sit); line-height: 1.15; }
+.field > span:last-child, .time-pick { align-self: center; }
+.paper-scroll .field input { margin: 0; }

@@ -375,7 +375,8 @@ rooms/{room}/  meta{created,size}, slots/{slot}{home, code?}, names/{slot}, mess
 - 畫面：link（第一次輸入碼；朋友的碼且沒有家 → 再問名字）→ home（聊天室列表：最後一則、未讀紅點、對方狗醒著的綠點、等待朋友的邀請）→ chat → add（輸入碼 / 產生邀請碼）→ settings（名字、待辦清單、時間、這支手機）。手機返回鍵可以回首頁（history.pushState）
 - 未讀：localStorage `dp_read_{room}`；家：`dp_home`
 - 測試：`/tmp` 裡用假的 Firebase SDK 模組（記憶體樹）+ Playwright 跑過整個流程和截圖（不在 repo 裡；需要的話照 `tests/fake_firebase.py` 的概念重做）
-- `sw.js` 快取 v0.4.4
+- 首頁、加朋友、設定的每一列都對齊橫線（Evan 要求）：`--line` 48px（原本 34），字靠下離線 `--sit` 7px，會換行的說明用 line-height = 一行再整段往下挪；輸入框和按鈕高 = 一行 − 8px、上下各 4px
+- `sw.js` 快取 v0.4.5
 
 ### 停在分支上的小修改
 `fix/join-anytime`（GitHub 上）是 v0.4.1 時「已配對也能輸入碼」的修改，Evan 中途改要首頁，所以沒合併；v0.4.2 已經用新設計做到同樣的事，這個分支可以刪
