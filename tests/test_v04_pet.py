@@ -74,8 +74,9 @@ def run_until(cond, limit=30.0, dt=0.016):
     return t
 
 
-def msg(i, text="Hi Evan!", name="Amy"):
-    return {"id": f"m{i}", "from": "b", "name": name, "text": text, "ts": 1000 + i, "via": "phone", "mine": False}
+def msg(i, text="Hi Evan!", name="Amy", room="r1"):
+    return {"room": room, "id": f"m{i}", "from": "b", "name": name, "text": text, "ts": 1000 + i, "via": "phone",
+            "mine": False}
 
 
 def ok(s): print("ok -", s)
@@ -262,36 +263,54 @@ from datetime import datetime
 
 class FakeCloud:
     def __init__(self):
-        self.paired = False
-        self.state = {"partner_name": "", "my_name": "", "test_mode": False}
+        self.linked = False
         self.my_name = ""
-        self.partner_name = "Your friend"
-        self.has_partner = False
-        self.test_mode = False
+        self.old_pairing = False
+        self._rooms = []                 # [{"id","partner","test"}]
+        self._phones = 0
         self.calls = []
         self.fail = None
-        self.phones = 0
+        self.home_data = {}
+        self.sent = []
+    paired = property(lambda self: self.linked)
+    def rooms(self): return list(self._rooms)
+    def phones(self): return self._phones
+    def partner_of(self, rid): return next((r["partner"] for r in self._rooms if r["id"] == rid), "Friend")
     def call(self, fn, *args, callback=None):
         self.calls.append((fn.__name__, args))
         if self.fail:
-            callback(None, self.fail); return
-        callback(fn(*args), None)
-    def _room(self, name):
-        if not self.paired:
-            self.paired = True; self.my_name = name
-    def link_phone(self, name): self._room(name); return {"code": "111111"}
-    def test_phone(self, name): self._room(name); self.test_mode = True; return {"code": "222222"}
-    def create_pair(self, name): self._room(name); self.test_mode = False; return {"code": "333333", "room": "r"}
-    def join(self, code, name):
-        self.paired = True; self.has_partner = True; self.state["partner_name"] = "Evan"; self.partner_name = "Evan"
-        return {"partner": "Evan"}
-    def who_joined(self): return {"my_phones": self.phones, "partner": self.state["partner_name"]}
+            callback and callback(None, self.fail); return
+        v = fn(*args)
+        if callback:
+            callback(v, None)
+    def _home(self, name):
+        if not self.linked:
+            self.linked = True; self.my_name = name
+    def link_code(self, name=""): self._home(name); return {"code": "111111"}
+    def invite_code(self, name=""): self._home(name); return {"code": "333333", "room": "rNew"}
+    def test_chat(self, name=""):
+        self._home(name)
+        if not any(r["test"] for r in self._rooms):
+            self._rooms.append({"id": "rTest", "partner": "Test phone", "test": True})
+        return {"room": "rTest"}
+    def join(self, code, name=""):
+        self._home(name); self._rooms.append({"id": "rJ", "partner": "Evan", "test": False})
+        return {"room": "rJ", "partner": "Evan"}
+    def refresh_names(self): return {"rooms": self.rooms()}
     def set_my_name(self, n): self.my_name = n
-    def unpair(self): self.paired = False; self.has_partner = False
-    def history(self):
-        return [{"id": "a", "mine": False, "name": "Amy", "text": "hi <b>", "ts": 1760000000000},
-                {"id": "b", "mine": True, "name": "Me", "text": "yo", "ts": 1760000060000}]
-    def send(self, t): return {"id": "z", "text": t}
+    def unlink_phones(self): n = self._phones; self._phones = 0; return n
+    def leave_room(self, rid): self._rooms = [r for r in self._rooms if r["id"] != rid]
+    def reset(self): self.linked = False; self._rooms = []; self._phones = 0
+    def history(self, rid):
+        return [{"room": rid, "id": "a", "mine": False, "name": "Amy", "text": "hi <b>", "ts": 1760000000000},
+                {"room": rid, "id": "b", "mine": True, "name": "Me", "text": "yo", "ts": 1760000060000}]
+    def send(self, rid, t): self.sent.append((rid, t)); return {"id": "z", "text": t, "room": rid}
+    def mark_seen(self, rid, ts): self.calls.append(("mark_seen", (rid, ts)))
+    def todo_put(self, it): pass
+    def todo_remove(self, i): pass
+    def todo_rollover(self, ids, d): pass
+    def todo_upload(self, items, d): pass
+    def settings_put(self, s): pass
 
 
 def status_text(d):
@@ -303,93 +322,145 @@ fc = FakeCloud()
 changes = []
 dlg = UI.PairDialog(fc, on_change=lambda: changes.append(1))
 dlg._vis = True
-# 📱 連自己的手機：沒有房間 → 先問名字
+# 📱 連手機：沒有家 → 先問名字
 dlg.open_mode("link")
-dlg.name.setText(""); dlg._request_code(); assert "name first" in status_text(dlg)
-dlg.name.setText("Evan"); dlg._request_code()
-assert fc.calls[-2:] == [("link_phone", ("Evan",)), ("who_joined", ())] and dlg.code == "111111" and dlg.waiting
-fc.phones = 1
-for _ in range(3): dlg._tick()
+dlg.name.setText(""); dlg._go(); assert "name first" in status_text(dlg)
+dlg.name.setText("Evan"); dlg._go()
+assert fc.calls[-1] == ("link_code", ("Evan",)) and dlg.code == "111111" and dlg.waiting == "phone"
+fc._phones = 1; dlg._tick()
 assert "phone is linked" in status_text(dlg) and not dlg.waiting
-# 已經有房間：直接給碼，不再問名字
-dlg.open_mode("link"); assert dlg.code == "111111"
-# 🧪 測試：手機加入當朋友
-dlg.open_mode("test"); assert dlg.code == "222222" and fc.test_mode
-fc.state["partner_name"] = "Phone"; fc.has_partner = True; fc.partner_name = "Phone"
+# 有家了：直接給碼
+dlg.open_mode("link"); assert fc.calls[-1] == ("link_code", ("",)) and dlg.code == "111111"
+# 💌 邀請朋友
+dlg.open_mode("invite"); assert dlg.code == "333333" and dlg.waiting == "friend" and dlg.wait_room == "rNew"
+fc._rooms.append({"id": "rNew", "partner": "Amy", "test": False})
 for _ in range(3): dlg._tick()
-assert "Phone joined" in status_text(dlg) and "watch your dog" in status_text(dlg)
-# 💌 邀請朋友：結束測試模式
-dlg.open_mode("invite"); assert dlg.code == "333333" and not fc.test_mode
-fc.state["partner_name"] = "Amy"
-for _ in range(3): dlg._tick()
-assert "Amy joined" in status_text(dlg)
-# ⚙ 設定：改名、解除配對
-dlg.open_mode("settings"); dlg.name.setText("Ev"); dlg._save_name(); assert fc.my_name == "Ev"
-UI.QMessageBox.question.return_value = UI.QMessageBox.Yes
-dlg._unpair(); assert not fc.paired and "Unpaired" in status_text(dlg)
-# 🔑 朋友那邊輸入碼
+assert "Amy joined" in status_text(dlg) and not dlg.waiting
+# 🧪 測試聊天：手機已連 → 直接告訴他去手機開 Test phone
+dlg.open_mode("test"); assert any(r["test"] for r in fc.rooms()) and "Ready" in status_text(dlg)
+# 手機沒連 → 先給連手機的碼
+fc._phones = 0; dlg.open_mode("test"); assert dlg.code == "111111" and dlg.waiting == "phone"
+fc._phones = 1; dlg._tick(); assert "Test phone chat" in status_text(dlg)
+# 🔑 輸入碼：已經有家也能用（不用名字）
+dlg.open_mode("join"); dlg.code_in.setText("12"); dlg._join(); assert "6 numbers" in status_text(dlg)
+dlg.code_in.setText("123456"); dlg._join(); assert fc.calls[-1][0] == "join" and fc.calls[-1][1][0] == "123456"
+assert any(r["id"] == "rJ" for r in fc.rooms())
 fc2 = FakeCloud(); dlg2 = UI.PairDialog(fc2); dlg2.open_mode("join")
-dlg2.code_in.setText("12"); dlg2.name.setText("Amy"); dlg2._join(); assert "6 numbers" in status_text(dlg2)
-dlg2.code_in.setText("123456"); dlg2._join(); assert fc2.paired and fc2.calls[-1][0] == "join"
+dlg2.code_in.setText("123456"); dlg2.name.setText(""); dlg2._join(); assert "name too" in status_text(dlg2)
 fc3 = FakeCloud(); fc3.fail = "That code doesn't work. Ask for a new one!"
 dlg3 = UI.PairDialog(fc3); dlg3.open_mode("join"); dlg3.name.setText("x"); dlg3.code_in.setText("999999"); dlg3._join()
 assert "doesn't work" in status_text(dlg3)
-# 已經有朋友時「I have a code」→ 提示先解除
-fc4 = FakeCloud(); fc4.paired = fc4.has_partner = True; fc4.partner_name = "Amy"
-dlg4 = UI.PairDialog(fc4); dlg4.open_mode("join"); assert "code_in" not in dlg4.__dict__
+# ⚙ 設定：改名、離開聊天室、移除手機、全部重來
+UI.QMessageBox.question.return_value = UI.QMessageBox.Yes
+dlg.open_mode("settings"); dlg.name.setText("Ev"); dlg._save_name(); assert fc.my_name == "Ev"
+dlg._leave("rJ"); assert not any(r["id"] == "rJ" for r in fc.rooms())
+dlg._unlink(); assert fc.phones() == 0
+dlg._start_over(); assert not fc.linked and fc.rooms() == []
 # 碼過期提示
-dlg.open_mode("invite"); dlg.name.setText("Evan"); dlg._request_code(); dlg.code_exp = UI._now() - 1; dlg._tick(); assert "expired" in str(dlg.count_lab.setText.call_args)
+dlg.open_mode("invite"); dlg.name.setText("Evan"); dlg._go(); dlg.code_exp = UI._now() - 1; dlg._tick()
+assert "expired" in str(dlg.count_lab.setText.call_args)
 assert UI.fmt_code("123456") == "123 456"
 now = datetime(2026, 10, 19, 22, 0)
 ts_today = int(datetime(2026, 10, 19, 21, 3).timestamp() * 1000)
 ts_old = int(datetime(2026, 10, 18, 9, 5).timestamp() * 1000)
 assert UI.fmt_time(ts_today, now) == "21:03" and UI.fmt_time(ts_old, now) == "10/18 09:05"
-ok("pair dialog: link phone (no friend needed), test with phone, invite, join, settings, expiry")
+ok("phone & friends window: link phone, invite, test chat, join (any time), settings, expiry")
 
+# 訊息視窗：左邊聊天室列表
+fc._rooms = [{"id": "r1", "partner": "Amy", "test": False}, {"id": "r2", "partner": "Ben", "test": False}]
 mw = UI.MessagesWindow(fc)
-mw.show_window(focus_reply=True)
+mw.show_window()
+assert mw.room == "r1" and ("history", ("r1",)) in fc.calls
 html_out = mw.view.setHtml.call_args[0][0]
-assert "hi &lt;b&gt;" in html_out and 'align="right"' in html_out and "Amy" in html_out
+assert "hi &lt;b&gt;" in html_out and 'align="right"' in html_out
+mw.add({"room": "r2", "id": "x", "mine": False, "name": "Ben", "text": "yo", "ts": 1})
+assert mw.unread == {"r2": 1} and mw.room == "r1"
+mw._picked(1); assert mw.room == "r2" and "r2" not in mw.unread
 mw.edit.setText("  see you  "); mw.send()
-assert fc.calls[-1] == ("send", ("see you",)) and mw.items[-1]["text"] == "see you" and mw.edit.text() == ""
-mw.add({"id": "c", "mine": False, "name": "Amy", "text": "new!", "ts": 1}); mw.add({"id": "c", "mine": False, "name": "Amy", "text": "new!", "ts": 1})
+assert fc.sent[-1] == ("r2", "see you") and mw.items[-1]["text"] == "see you"
+mw.add({"room": "r2", "id": "c", "mine": False, "name": "Ben", "text": "new!", "ts": 1})
+mw.add({"room": "r2", "id": "c", "mine": False, "name": "Ben", "text": "new!", "ts": 1})
 assert [m["id"] for m in mw.items].count("c") == 1
-ok("messages window (history, escape, send, no duplicates)")
+mw.show_window(room="r1", focus_reply=True); assert mw.room == "r1"
+fc._rooms = []; mw.refresh_rooms(); assert mw.room == ""
+ok("messages window: chat list, unread dots, switch chats, send, no duplicates")
 
-# ---------------------------------------------------------------- 11. app._pump / 選單
+# ---------------------------------------------------------------- 11. 待辦同步（TodoStore）
+from pet.todo import TodoStore as TS
+ops = []
+ts_store = TS(tmp / "todo_sync.json")
+ts_store.on_change = lambda op, d: ops.append(op)
+ts_store.add("Calculus"); ts_store.toggle(0); ts_store.remove(0)
+assert ops == ["put", "put", "remove"]
+ts_store.add("Keep me")
+keep_id = ts_store.items[0]["id"]
+newp = ts_store.apply_remote({keep_id: {"text": "Keep me", "done": False, "ts": 1, "by": "pet"},
+                              "p1": {"text": "From phone", "done": False, "ts": 5, "by": "phone"}}, "2026-10-19")
+assert [it["text"] for it in ts_store.items] == ["Keep me", "From phone"] and [it["text"] for it in newp] == ["From phone"]
+assert ts_store.apply_remote({"p1": {"text": "From phone", "done": True, "ts": 5, "by": "phone"}}) == []
+assert ops == ["put", "put", "remove", "put"]                     # 套用手機的不會再觸發 on_change
+old_file = tmp / "todo_old.json"
+old_file.write_text('{"date": "%s", "items": [{"text": "old", "done": false}]}' % ts_store.date)
+assert TS(old_file).items[0]["id"]                                  # 舊格式補上 id
+ok("todo store: ids, on_change, apply_remote (new phone items found)")
+
+# ---------------------------------------------------------------- 12. app._pump / 選單
 from pet.app import PetApp
 fake = MagicMock()
 fake.pet = pet
 fake.msg_win = mw
 fake.pair_dlg = None
+fake._todo_synced = False
+fake.settings = settings
+fake.todo = TS(tmp / "todo_app.json")
+fake.todo.add("Local task")
+for _m in ("_todo_from_cloud", "_settings_from_cloud", "_push_settings", "_todo_changed", "_cloud_changed"):
+    setattr(fake, _m, (lambda name: lambda *a: getattr(PetApp, name)(fake, *a))(_m))
 mw._vis = True
-events = [("message", msg(20, "from pump")), ("online", False), ("result", (lambda v, e: changes.append(("cb", v)), 5, None)),
-          ("unpaired", None)]
-fake.cloud.drain.return_value = events
+fake.cloud = FakeCloud(); fake.cloud.linked = True
+fake.cloud._rooms = [{"id": "r1", "partner": "Amy", "test": False}]
+mw.cloud = fake.cloud; mw.refresh_rooms()
+bubbles = []
+pet.todo_from_phone = lambda text: bubbles.append(text)
+events = [("message", msg(20, "from pump")), ("online", False),
+          ("result", (lambda v, e: changes.append(("cb", v)), 5, None)),
+          ("todo", {"items": {}, "date": ""})]
+fake.cloud.drain = lambda: list(events)
 pet._set_state("idle", 50)
 PetApp._pump(fake)
-assert pet.msg_queue == deque() or True
 assert ("cb", 5) in changes and fake.cloud_online is False and mw.items[-1]["text"] == "from pump"
-assert not pet.msg_queue                     # unpaired 清掉了
+assert fake._todo_synced and any(n == "todo_upload" for n, a in fake.cloud.calls)   # 雲端空的 → 把電腦上的傳上去
+assert any(n == "settings_put" for n, a in fake.cloud.calls)                         # 時間設定也傳上去
+events[:] = [("todo", {"items": {"x1": {"text": "Buy milk", "done": False, "ts": 9, "by": "phone"}}, "date": fake.todo.date}),
+             ("settings", {"wake_time": "07:45", "focus_min": 30, "break_min": 5})]
+PetApp._pump(fake)
+assert [it["text"] for it in fake.todo.items] == ["Buy milk"] and bubbles == ["Buy milk"]
+assert settings.get("wake_time") == "07:45" and settings.get("focus_min") == 30
+events[:] = [("reset", None)]
+pet.on_message(msg(30)); PetApp._pump(fake)
+assert not pet.msg_queue and not fake._todo_synced                 # reset 清掉
+
 def labels(m):
     out = [str(c.args[0]) for c in m.addAction.call_args_list]
     sub = m.addMenu.return_value
     return out + [str(c.args[0]) for c in sub.addAction.call_args_list]
 fake.cloud = FakeCloud()
 menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
-assert {"📱 Link my phone...", "🧪 Test with my phone...", "💌 Invite a friend...", "🔑 I have a code..."} <= set(L), L
-assert not any(x.startswith("💌 Messages") for x in L)
-fake.cloud.paired = True
+assert {"📱 Link my phone...", "💌 Invite a friend...", "🔑 I have a code...", "🧪 Test chat..."} <= set(L), L
+assert "💌 Messages..." not in L and "⚙ Settings..." not in L
+fake.cloud.linked = True; fake.cloud._phones = 1
+fake.cloud._rooms = [{"id": "r1", "partner": "Amy", "test": False}, {"id": "rT", "partner": "Test phone", "test": True}]
 menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
-assert "No friend yet" in L and "⚙ Pairing..." in L and "🔑 I have a code..." not in L
-fake.cloud.has_partner = True; fake.cloud.partner_name = "Amy"
-menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
-assert "💌 Messages with Amy..." in L and "💌 Invite a friend..." not in L and "Friend: Amy" in L
+assert "💌 Messages..." in L and "Phones: 1 · Friends: 1" in L and "⚙ Settings..." in L and "🔑 I have a code..." in L
 assert not any("Reply" in x for x in L)
-fake.cloud.test_mode = True; fake.cloud.partner_name = "Phone"
-menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
-assert "💌 Messages with Phone (test)..." in L and "💌 Invite a friend..." in L and "Testing with my phone" in L
 fake.cloud = None; menu = MagicMock(); PetApp._msg_actions(fake, menu); assert not menu.addAction.called and not menu.addMenu.called
-ok("app pump + menus")
+ok("app pump (messages, to-do first upload + phone items -> bubble, settings, reset) + menus")
+
+# 手機加的待辦：狗冒泡泡（真的那個方法）
+pet2 = PetWindow(Sprites(), settings)
+pet2._set_state("idle", 50)
+pet2.todo_from_phone("Buy milk")
+assert pet2.bubble.text == "New task: Buy milk"
+ok("dog bubble for a to-do added on the phone")
 
 print("ALL PET MESSAGE TESTS PASSED")

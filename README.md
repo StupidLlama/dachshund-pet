@@ -1,6 +1,6 @@
 # 🐶 臘腸狗桌寵 Dachshund Pet
 
-Windows 桌寵：會在整個螢幕上 8 方向亂逛的臘腸狗。（目前版本 v0.4）
+Windows 桌寵：會在整個螢幕上 8 方向亂逛的臘腸狗。（目前版本 v0.4.2）
 
 ## 執行
 
@@ -69,26 +69,31 @@ py main.py
 - 「叮」是 `assets/sounds/ding.wav`，想換成別的聲音就換這個檔（要是 .wav）
 - 番茄和葉子是 `assets/pomodoro/tomato.png`、`leaf.png`（512×512、同一個中心點、葉子最長那片朝上）
 
-## v0.4 跟朋友互傳訊息 💌
+## v0.4 跟朋友互傳訊息 💌（v0.4.2：很多朋友 + 手機 App）
 
-兩個人配對之後，可以從桌寵或手機傳訊息到對方的狗頭上。
+**狗右鍵 →「📱 Phone & friends」**
 
-| 功能 | 怎麼用 |
+| 項目 | 做什麼 |
 |---|---|
-| 選單 | 狗右鍵 →「📱 Phone & friends」：📱 Link my phone / 🧪 Test with my phone / 💌 Invite a friend / 🔑 I have a code / ⚙ Pairing |
-| 連自己的手機 | 「📱 Link my phone」→ 打名字 → 手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入那組碼。**不用先有朋友**。手機可以「加入主畫面」當 App 用 |
-| 自己測試 | 「🧪 Test with my phone」：手機假裝成朋友，手機傳的訊息會跑到自己的狗頭上。測完在手機「⋯ → Unpair」，再用「💌 Invite a friend」 |
-| 邀請朋友 | 「💌 Invite a friend」→ 把碼給朋友，朋友在他的狗「🔑 I have a code」輸入，或在手機網頁輸入。碼 10 分鐘內有效 |
-| 收到訊息 | 狗頭上冒紅色「!」→ 跑到螢幕中間 → 汪！→ 泡泡一直顯示到你點掉（點泡泡或點狗）。好幾則會一則一則來 |
-| 番茄鐘專心中 | 只冒「!」幾秒 + Windows 通知，泡泡等休息時間才出現 |
-| 回覆 / 看紀錄 | 右鍵「Messages with ○○...」（最近 20 則 + 打字回覆）；在訊息泡泡上按右鍵也能直接回覆 |
-| 手機 | 聊天室：完整紀錄、快捷訊息、看得到對方的狗醒著沒、訊息「Sent / Delivered / Seen」 |
+| 📱 Link my phone | 手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入碼，手機就連上你的狗（可以「加入主畫面」當 App 用） |
+| 💌 Invite a friend | 給朋友的碼；朋友在他的狗「🔑 I have a code」或手機 App 輸入，就多一個聊天室 |
+| 🔑 I have a code | 輸入朋友給的碼（隨時都能用，朋友可以很多個） |
+| 🧪 Test chat | 自己跟自己聊：手機打開「My dog」聊天室傳訊息，會跑到自己的狗頭上 |
+| ⚙ Settings | 改名字、移除手機、離開聊天室、全部重來 |
+
+**狗收到訊息**：頭上紅色「!」→ 跑到螢幕中間 → 汪！→ 泡泡一直顯示到你點掉（點泡泡或點狗）。好幾則一則一則來；番茄鐘專心中只閃「!」+ Windows 通知。右鍵「💌 Messages...」：左邊所有朋友、右邊聊天；在泡泡上按右鍵直接回覆。
+
+**手機 App**
+- 首頁：所有聊天室（最後一則、未讀紅點、對方的狗醒著沒）、＋ Add a friend（輸入碼 / 產生邀請碼）
+- 聊天室：完整紀錄、快捷訊息、Sent / Delivered / Seen
+- ⚙ 設定：名字、**待辦清單**（新增 / 打勾 / 刪除，跟電腦上的清單同步；手機加的項目狗會冒泡泡「New task: ...」）、起床時間、番茄鐘時間、解除這支手機
+- 沒有狗的朋友也能用：手機輸入朋友給的碼，打名字就好
 
 - 一則最多 60 字。英數字用手寫字，中文在電腦上用標楷體、在手機上用霞鶩文楷
 - 對方的狗沒開也可以傳，下次開機就會收到
 - 汪的聲音是 `assets/sounds/bark.wav`（程式合成的），想換成真的狗叫就換這個檔
-- 配對資料存在 `%APPDATA%\DachshundPet\cloud.json`
-- 用 Firebase Realtime Database（免費方案）。安全規則在 `firebase/database.rules.json`，由 `tools/build_rules.py` 產生
+- 本機資料：`%APPDATA%\DachshundPet\cloud.json`
+- Firebase Realtime Database（免費方案）。安全規則 `firebase/database.rules.json` 由 `tools/build_rules.py` 產生
 
 ## 自訂圖示
 

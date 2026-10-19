@@ -1257,6 +1257,13 @@ class PetWindow(QWidget):
         if self.msg_bubble.active and self.msg_cur is not None:
             self.msg_bubble.show_msg(self.msg_cur["name"], self.msg_cur["text"], len(self.msg_queue))
 
+    def todo_from_phone(self, text: str) -> None:
+        """手機加了一項待辦：冒泡泡（搬清單、專心時安靜）。"""
+        if self.busy or self._msg_focus_mode() or self.state in HANDS_OFF:
+            return
+        self.add_hearts(1)
+        self.say(f"New task: {text}", life=3.0)
+
     def clear_messages(self) -> None:
         """解除配對：清掉所有還沒看的訊息。"""
         self.msg_queue.clear()

@@ -70,6 +70,27 @@ QSystemTrayIcon = MagicMock(name="QSystemTrayIcon")
 QInputDialog = MagicMock(name="QInputDialog")
 QMessageBox = MagicMock(name="QMessageBox")
 QPushButton = MagicMock(name="QPushButton")
+
+
+class QListWidgetItem:
+    def __init__(self, text=""): self._t = text
+    def text(self): return self._t
+
+
+class QListWidget(QWidget):
+    currentRowChanged = Signal(int)
+    def __init__(self, *a):
+        super().__init__(); self._items = []; self._row = -1; self._blocked = False
+    def clear(self): self._items = []; self._row = -1
+    def addItem(self, it): self._items.append(it)
+    def count(self): return len(self._items)
+    def item(self, i): return self._items[i]
+    def currentRow(self): return self._row
+    def setCurrentRow(self, r):
+        if r != self._row:
+            self._row = r
+            if not self._blocked: self.currentRowChanged.emit(r)
+    def blockSignals(self, b): self._blocked = b
 QTextBrowser = MagicMock(name="QTextBrowser")
 
 

@@ -1,8 +1,8 @@
-# 交接文件 — 臘腸狗桌寵 v0.4 → v0.5
+# 交接文件 — 臘腸狗桌寵 v0.4.2 → v0.5
 
 > 開新對話時說：「照 桌面\dachshund-pet\HANDOFF.md 繼續做 v0.5」。Claude 會連上電腦直接改資料夾，不用傳 zip。
 >
-> **現況（2026-10-19 晚上）**：v0.3 Evan 實測過、沒問題。v0.4（Firebase 雙人訊息 + 手機 PWA）完成並 push：安全規則和手機網頁**已在真的 Firebase 上端到端測過**（見「v0.4 實作 → 真實測試」），**桌寵端 Python 連真的 Firebase 還沒在 Evan 的 Windows 上測**。下一個對話先問 Evan v0.4 實測結果（見「v0.4 要請 Evan 確認的」）並修好，再開始 v0.5。
+> **現況（2026-10-19 晚上）**：v0.4.2（手機 App 首頁 + 很多朋友 + 待辦 / 設定同步）完成並 push；安全規則和手機網頁已在真的 Firebase 上端到端測過（見 v0.4.2 一節），**桌寵端 Python 連真的 Firebase 還沒在 Evan 的 Windows 上測**。下一個對話先問 Evan 實測結果（「v0.4.2 要請 Evan 確認的」）並修好，再開始 v0.5。
 
 ## 專案目標（截止：2026-10-19 週一晚上）
 Windows 桌寵臘腸狗：
@@ -340,15 +340,56 @@ Evan 覺得連手機的流程太繞（要先配對朋友才能連自己的手機
 - 手機網頁：標題「Link to a dog」、說明寫狗的選單路徑；還沒有朋友時標題「Hi, ○○!」、說明「Your phone is linked. Waiting for a friend to join.」、送出鍵和快捷訊息先停用、空白處提示怎麼邀請朋友。`sw.js` 快取版本 v0.4.2
 - 測試模式之後邀請真的朋友：測試手機要先在手機上「⋯ → Unpair」（規則不讓狗刪別人的成員資料），朋友加入後名字會蓋掉 Phone
 
-### v0.4 要請 Evan 確認的（桌寵端 Python 還沒在 Windows 上連過真的 Firebase）
-1. 狗右鍵「📱 Phone & friends」→「🧪 Test with my phone」/「📱 Link my phone」有沒有出現 6 碼、手機輸入後視窗有沒有顯示「🎉 ...」（失敗的話錯誤訊息是什麼）
-2. 手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入那組碼 → 從手機傳訊息 → 狗有沒有「!」→ 跑到中間 → 汪 → 泡泡；汪的聲音 OK 嗎
+## v0.4.2 首頁 + 很多朋友 + 待辦 / 設定同步（2026-10-19 晚上，Evan 要求）
+> ⚠ 這版**換掉了 v0.4 / v0.4.1 的資料結構**（上面「資料結構」那段是舊的）。舊的 cloud.json（沒有 `version: 2`）載入時只留登入身分，狗會冒通知請 Evan 重新連手機。
+
+### Evan 的答題卡
+| 項目 | 決定 |
+|---|---|
+| 首頁放哪 | 手機 + 狗的 Messages 視窗都改成列表 |
+| 聊天室 | 先只有 1 對 1，但要能擴充成群組（`SLOTS` 改長；規則產生器已經用迴圈產生每個位置的檢查） |
+| 手機待辦 | 新增 + 打勾 + 刪除（跟電腦一樣） |
+| 手機新增待辦時 | 狗冒泡泡「New task: ○○」 |
+| 設定頁 | 名字、待辦、起床時間、番茄鐘時間全部都要 |
+| 版本 | 算 v0.4.x（v0.4.1 已經用在連手機的修改，所以這次叫 v0.4.2） |
+
+### 新的資料結構（`tools/build_rules.py` 檔頭有完整說明）
+```
+homes/{home}/  meta, members/{uid}{kind pet|phone}, name, rooms/{room}: "a"|"b"|"ab", todo/{id}{text,done,ts,by}, todo_date, settings{wake_time,focus_min,break_min}
+codes/{6碼}    {kind: home|room, target, slot?, by, exp}   home = 連自己的手機；room = 邀請朋友
+rooms/{room}/  meta{created,size}, slots/{slot}{home, code?}, names/{slot}, messages/{id}, status/{slot}{pet,delivered,seen}
+```
+- 「家」= 一個人：他的狗 + 他的手機（uid 都在 members）。聊天室的成員 = 某個位置的家裡有你這台裝置
+- 寫入順序有講究（規則用寫入前的資料檢查）：建家 = 一次 PATCH（meta + members + name）；建聊天室 = PATCH（meta + slots）→ 再寫 names → 再寫 `homes/{h}/rooms/{r}`（規則檢查那個位置真的是這個家）；加入 = 寫 slots/{slot}（帶 code）→ names → 家的 rooms
+- 測試聊天室：slots a 和 b 都是同一個家，家裡記 "ab"；狗用 a、手機用 b（`my_slot` 取第一個字、手機 `sendSlot` 取最後一個字）
+- 沒有狗的朋友：手機輸入朋友給的碼時會自己建一個家（只有手機）
+
+### 桌寵端改了什麼
+- `cloud.py` 整個重寫：`ensure_home`、`link_code`、`invite_code`（還沒人加入的聊天室會重用）、`test_chat`、`join`（隨時都能用，會多一個聊天室；家的碼會擋掉）、`leave_room`、`set_my_name`（家 + 所有聊天室的名字）、`unlink_phones`、`reset`、`send(room, text)`、`history(room)`、`mark_seen(room, ts)`、`todo_put / todo_remove / todo_upload / todo_rollover`、`settings_put`。背景：家串流（`homes/{h}` SSE，`apply_patch()` 維護副本 → 事件 rooms / todo / settings / home / reset）、每個聊天室一條訊息串流（`_sync_room_threads`）、心跳
+- `todo.py`：每項有 `id`（`t` + 13 位毫秒 + 6 字母，手機用同樣格式）、`ts`、`by`；`on_change(op, data)` 讓 app 傳上去；`apply_remote()` 整份換掉並回傳手機新加的
+- `app.py`：第一次收到家的 todo 事件時，雲端是空的 → 把電腦上的清單和時間設定傳上去；之後雲端為準。手機改設定 → 套用並重新檢查起床時間。Settings 視窗存檔 → 傳上去。選單：「💌 Messages...」（有聊天室才有）、「↩ Reply...」、子選單「📱 Phone & friends」（狀態列 Phones: N · Friends: M、Link my phone、Invite a friend、I have a code、Test chat、⚙ Settings）
+- `messaging_ui.py`：`PairDialog.open_mode(link|invite|join|test|settings)`；`MessagesWindow` 左邊聊天室列表（未讀「● N」）、右邊聊天
+- `pet_window.py`：`todo_from_phone(text)` 冒「New task: ...」；訊息帶 `room`，`seen_fn` 用 room
+
+### 手機 App（`docs/`）
+- 畫面：link（第一次輸入碼；朋友的碼且沒有家 → 再問名字）→ home（聊天室列表：最後一則、未讀紅點、對方狗醒著的綠點、等待朋友的邀請）→ chat → add（輸入碼 / 產生邀請碼）→ settings（名字、待辦清單、時間、這支手機）。手機返回鍵可以回首頁（history.pushState）
+- 未讀：localStorage `dp_read_{room}`；家：`dp_home`
+- 測試：`/tmp` 裡用假的 Firebase SDK 模組（記憶體樹）+ Playwright 跑過整個流程和截圖（不在 repo 裡；需要的話照 `tests/fake_firebase.py` 的概念重做）
+- `sw.js` 快取 v0.4.4
+
+### 停在分支上的小修改
+`fix/join-anytime`（GitHub 上）是 v0.4.1 時「已配對也能輸入碼」的修改，Evan 中途改要首頁，所以沒合併；v0.4.2 已經用新設計做到同樣的事，這個分支可以刪
+
+### v0.4.2 要請 Evan 確認的（桌寵端 Python 還沒在 Windows 上連過真的 Firebase）
+1. 狗右鍵「📱 Phone & friends」→「📱 Link my phone」→ 打名字 → 出現 6 碼；手機輸入後視窗跳出「🎉 Your phone is linked!」
+2. 「🧪 Test chat」→ 手機首頁出現「My dog」→ 傳訊息 → 狗「!」→ 跑到中間 → 汪 → 泡泡；汪的聲音 OK 嗎
 3. 點泡泡 / 點狗會關掉、手機變「Seen」；連傳好幾則會一則一則來（「+N more」）
-4. 狗右鍵「💌 Messages with ○○...」看得到紀錄、回覆後手機收得到；在泡泡上按右鍵會開回覆視窗
-5. 番茄鐘專心中收到：只有「!」+ Windows 通知，休息時才冒泡泡
-6. 關掉狗 → 手機傳 → 再開狗，訊息有沒有補送
-7. 中文訊息在泡泡上的字（標楷體）好不好看、換行對不對
-8. 配對視窗、訊息視窗長怎樣（醜的地方）
+4. 狗右鍵「💌 Messages...」左邊有聊天室列表、看得到紀錄、回覆後手機收得到；在泡泡上按右鍵會開回覆
+5. 手機「⚙」設定頁：待辦清單跟電腦上的一樣；手機新增 → 狗冒「New task: ...」、電腦清單也多一項；電腦打勾 → 手機也打勾
+6. 手機改起床時間 / 番茄鐘時間 → 電腦的 Settings 視窗也變了
+7. 番茄鐘專心中收到：只有「!」+ Windows 通知，休息時才冒泡泡
+8. 關掉狗 → 手機傳 → 再開狗，訊息有沒有補送
+9. 有朋友的話：「💌 Invite a friend」給碼、朋友用狗或手機加入
 
 ## GitHub（2026-10-19 起）
 - Repo：**https://github.com/StupidLlama/dachshund-pet**（Public，分支 `main`）
@@ -366,7 +407,7 @@ Evan 覺得連手機的流程太繞（要先配對朋友才能連自己的手機
 
 ## 新對話開始時
 1. 連上 Evan 的電腦（Windows 筆電 laptop-oe33r92j）。專案在 **`C:\Users\user\Desktop\dachshund-pet`**，用 `device_request_folder_access` 要這個資料夾。只改這一份
-2. 讀這份 HANDOFF.md 和程式碼（`pet/pet_window.py` 約 1600 行是主體；v0.3、v0.4 新檔見上面表格）。先問 Evan v0.4 實測結果（上面 8 點）並修好，再進 v0.5
+2. 讀這份 HANDOFF.md 和程式碼（`pet/pet_window.py` 約 1600 行是主體；v0.3、v0.4 新檔見上面表格）。先問 Evan v0.4.2 實測結果（「v0.4.2 要請 Evan 確認的」9 點）並修好，再進 v0.5
 3. v0.5 規格還沒定：先給 Evan 答題卡（「v0.5 開工前要給 Evan 的答題卡」），照他的習慣，開工前再給大分類工作清單等他說 OK
 4. 寫檔用 device_bash 直接改資料夾裡的檔案（就地改，用 python 讀 → 換字串 → 寫回，不要從工具輸出重打整個檔）；新圖或大檔用 `device_commit_files`
 5. 測試：device 的 VM 和雲端都裝不到 PySide6（PyPI 被擋）、也連不到 Firebase → 跑 `python3 tests/test_v03.py`、`python3 tests/test_v04_pet.py`（假 PySide6）、`python3 tests/test_v04_cloud.py`（本機假 Firebase）；新功能照這些檔加測試。要打真的 Firebase：用 Evan 電腦的**內建瀏覽器**（`mcp__remote-devices__Claude_Browser__*`）開 https://stupidllama.github.io/dachshund-pet/ ，在頁面上用 JS fetch REST（見「真實測試」）；注意 `preview_start` 會重用同一個分頁，要開第二個分頁用 `tabs_create` + `navigate`

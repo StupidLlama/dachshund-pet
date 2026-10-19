@@ -22,6 +22,7 @@ class FakeFirebase:
         self.n = 0
         self.expire_all = False              # 測 token 過期
         self.requests: list[tuple[str, str]] = []
+        self.deny = None                     # 測試用：deny(uid, method, parts) → True = 擋掉
         srv = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         srv.daemon_threads = True
         self.server = srv
@@ -141,12 +142,8 @@ class FakeFirebase:
                 if uid is None:
                     return self._send(401, {"error": "Auth token is expired"})
                 parts = [p for p in path.strip("/").split("/") if p]
-                if parts and parts[0] == "rooms" and len(parts) >= 2:
-                    room = parts[1]
-                    joining = len(parts) == 4 and parts[2] == "members" and parts[3] == uid
-                    creating = method == "PATCH" and len(parts) == 2 and fb.get(f"rooms/{room}/meta") is None
-                    if not (fb.member(uid, room) or joining or creating):
-                        return self._send(401, {"error": "Permission denied"})
+                if fb.deny and fb.deny(uid, method, parts):   # 測試可以自己加規則（真正的規則在真的 Firebase 測）
+                    return self._send(401, {"error": "Permission denied"})
                 if method == "GET" and "text/event-stream" in (self.headers.get("Accept") or ""):
                     return self._stream(path, q)
                 if method == "GET":
@@ -190,9 +187,12 @@ class FakeFirebase:
                     self.wfile.flush()
 
                 try:
-                    cur = self._query(fb.get(path), q) or {}
+                    query = "orderBy" in q
+                    cur = self._query(fb.get(path), q)
                     emit("put", {"path": "/", "data": cur or None})
-                    sent |= set(cur)
+                    if query:
+                        sent |= set(cur or {})
+                    last = json.dumps(cur, sort_keys=True)
                     ver = fb.version
                     while True:
                         with fb.cond:
@@ -201,11 +201,17 @@ class FakeFirebase:
                         if fb.expire_all:
                             emit("auth_revoked", "credential is no longer valid")
                             return
-                        cur = self._query(fb.get(path), q) or {}
-                        for k, v in cur.items():
-                            if k not in sent:
-                                sent.add(k)
-                                emit("put", {"path": f"/{k}", "data": v})
+                        cur = self._query(fb.get(path), q)
+                        if query:                     # 訊息：新的一則一則送
+                            for k, v in (cur or {}).items():
+                                if k not in sent:
+                                    sent.add(k)
+                                    emit("put", {"path": f"/{k}", "data": v})
+                        else:                         # 其他（家）：有變就整包重送（cloud.py 會整個換掉）
+                            now_s = json.dumps(cur, sort_keys=True)
+                            if now_s != last:
+                                last = now_s
+                                emit("put", {"path": "/", "data": cur})
                         self.wfile.write(b"event: keep-alive\ndata: null\n\n")
                         self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError, OSError):

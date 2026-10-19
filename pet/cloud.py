@@ -1,17 +1,24 @@
-"""v0.4 雙人訊息：桌寵 ↔ Firebase Realtime Database（不依賴 Qt，只用 Python 內建套件）。
+"""v0.4.2 雙人訊息 + 手機同步：桌寵 ↔ Firebase Realtime Database（不依賴 Qt，只用 Python 內建套件）。
 
 為什麼不用 firebase-admin：太大（之後打包 exe 會變胖），而且它是給伺服器用的。
 這裡直接打 Firebase 的 REST API：
     登入      identitytoolkit accounts:signUp（匿名）→ idToken（1 小時）+ refreshToken（長期）
     換 token  securetoken /v1/token
     讀寫      {databaseURL}/路徑.json?auth=idToken
-    收訊息    同一個網址加 Accept: text/event-stream（SSE 串流，伺服器一有新訊息就推過來）
+    即時更新  同一個網址加 Accept: text/event-stream（SSE 串流）
+
+資料結構（詳見 tools/build_rules.py）：
+    homes/{home}   一個人一個「家」：狗 + 手機、名字、聊天室列表、待辦清單、設定
+    rooms/{room}   一個聊天室（1 對 1；SLOTS 改長就能群組）
+    codes/{6 碼}   kind=home → 連自己的手機；kind=room → 邀請朋友
 
 執行緒：網路的事全部在背景執行緒做，結果丟進 self.events（queue）。
 Qt 那邊（app.py）用 QTimer 每 0.2 秒呼叫 drain() 拿出來處理，所以 Qt 物件只在主執行緒碰。
+    家串流         homes/{home}：聊天室列表、待辦、設定、成員 → 事件 rooms / todo / settings
+    每個聊天室一條  rooms/{room}/messages（orderBy ts, startAt 已讀+1）→ 事件 message
+    心跳           每 60 秒告訴朋友「我的狗醒著」、更新朋友的名字
 
-本機存檔 %APPDATA%\\DachshundPet\\cloud.json：uid、refreshToken、配對的房間、位置、名字、已看過的最新訊息時間。
-資料結構和安全規則見 tools/build_rules.py。
+本機存檔 %APPDATA%\\DachshundPet\\cloud.json：uid、refreshToken、家、名字、每個聊天室的位置 / 朋友名字 / 已讀到哪。
 """
 from __future__ import annotations
 
@@ -27,13 +34,16 @@ import urllib.request
 from pathlib import Path
 
 MAX_TEXT = 60                    # 一則訊息最多幾個字（跟安全規則一樣）
+MAX_TODO = 40
 CODE_LIFE_SEC = 600              # 配對碼 10 分鐘有效
-HEARTBEAT_SEC = 60               # 多久告訴對方「我的狗還開著」
-NAMES_POLL_SEC = 300             # 多久重新抓一次名字（對方改名）
+HEARTBEAT_SEC = 60               # 多久告訴朋友「我的狗還開著」
+NAMES_POLL_SEC = 300             # 多久重新抓一次朋友的名字（還沒有名字時每次心跳都抓）
 ONLINE_WINDOW_MS = 150_000       # 手機端：狗最後心跳在 2.5 分鐘內 = 在線
-HISTORY_N = 20                   # 桌寵右鍵看最近幾則
+HISTORY_N = 20                   # 桌寵看最近幾則
 PWA_URL = "https://stupidllama.github.io/dachshund-pet/"
-SLOTS = "ab"                     # 2 人一組（之後多人：改這裡和安全規則）
+SLOTS = "ab"                     # 1 對 1（之後群組：改這裡和 tools/build_rules.py）
+TEST_NAME = "Test phone"
+STATE_VERSION = 2
 
 AUTH_BASE = "https://identitytoolkit.googleapis.com/v1"
 TOKEN_BASE = "https://securetoken.googleapis.com/v1"
@@ -44,9 +54,9 @@ class CloudError(Exception):
     """給使用者看的錯誤（英文，桌寵介面是英文）。"""
 
 
-def clean_text(text: str) -> str:
-    """壓掉多餘空白、換行，最多 MAX_TEXT 字。"""
-    return " ".join(str(text).split())[:MAX_TEXT]
+def clean_text(text: str, n: int = MAX_TEXT) -> str:
+    """壓掉多餘空白、換行，最多 n 字。"""
+    return " ".join(str(text).split())[:n]
 
 
 def clean_name(name: str) -> str:
@@ -57,9 +67,12 @@ def other_slot(slot: str) -> str:
     return next((s for s in SLOTS if s != slot), "b")
 
 
-def random_room_id(n: int = 20) -> str:
+def random_id(n: int = 20) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(random.SystemRandom().choice(alphabet) for _ in range(n))
+
+
+random_room_id = random_id
 
 
 def random_code() -> str:
@@ -73,6 +86,39 @@ def load_config(path: Path) -> dict:
             raise CloudError(f"firebase config is missing {key}")
     cfg["databaseURL"] = cfg["databaseURL"].rstrip("/")
     return cfg
+
+
+def apply_patch(tree, path: str, data, merge: bool = False):
+    """把 SSE 的 put / patch 套到本機的副本上，回傳新的樹。"""
+    parts = [p for p in path.strip("/").split("/") if p]
+    if not parts:
+        if merge and isinstance(tree, dict) and isinstance(data, dict):
+            out = dict(tree)
+            for k, v in data.items():
+                out = apply_patch(out, k, v)
+            return out
+        return data
+    tree = dict(tree) if isinstance(tree, dict) else {}
+    node = tree
+    for part in parts[:-1]:
+        nxt = node.get(part)
+        nxt = dict(nxt) if isinstance(nxt, dict) else {}
+        node[part] = nxt
+        node = nxt
+    last = parts[-1]
+    if merge and isinstance(data, dict):
+        cur = dict(node.get(last)) if isinstance(node.get(last), dict) else {}
+        for k, v in data.items():
+            if v is None:
+                cur.pop(k, None)
+            else:
+                cur[k] = v
+        node[last] = cur
+    elif data is None:
+        node.pop(last, None)
+    else:
+        node[last] = data
+    return tree
 
 
 # ====================================================================== SSE 解析
@@ -105,28 +151,34 @@ class SSEParser:
 
 # ====================================================================== 本機存檔
 class CloudState:
-    FIELDS = {"uid": "", "refresh": "", "room": "", "slot": "", "my_name": "", "partner_name": "",
-              "seen_ts": 0, "delivered_ts": 0, "test_mode": False}
+    FIELDS = {"version": STATE_VERSION, "uid": "", "refresh": "", "home": "", "name": "", "rooms": {}}
 
     def __init__(self, path: Path):
         self.path = Path(path)
         self.lock = threading.RLock()
-        self.data = dict(self.FIELDS)
+        self.data = json.loads(json.dumps(self.FIELDS))
+        self.old_pairing = False
         if self.path.exists():
             try:
                 loaded = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
-                    self.data.update({k: v for k, v in loaded.items() if k in self.FIELDS})
+                    if loaded.get("version") == STATE_VERSION:
+                        self.data.update({k: v for k, v in loaded.items() if k in self.FIELDS})
+                    else:                                   # v0.4 / v0.4.1 的舊配對：只留登入身分
+                        self.data.update(uid=loaded.get("uid", ""), refresh=loaded.get("refresh", ""),
+                                         name=loaded.get("my_name", ""))
+                        self.old_pairing = bool(loaded.get("room"))
             except (OSError, json.JSONDecodeError):
                 pass
+        if not isinstance(self.data.get("rooms"), dict):
+            self.data["rooms"] = {}
 
     def __getitem__(self, key):
         with self.lock:
             return self.data.get(key, self.FIELDS.get(key))
 
-    def update(self, **kw) -> None:
+    def save(self) -> None:
         with self.lock:
-            self.data.update(kw)
             tmp = self.path.with_suffix(".tmp")
             try:
                 tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -134,16 +186,43 @@ class CloudState:
             except OSError:
                 pass
 
+    def update(self, **kw) -> None:
+        with self.lock:
+            self.data.update(kw)
+            self.save()
+
+    def room(self, rid: str) -> dict:
+        with self.lock:
+            return dict(self.data["rooms"].get(rid) or {})
+
+    def set_room(self, rid: str, **kw) -> None:
+        with self.lock:
+            cur = dict(self.data["rooms"].get(rid) or {"slots": "", "partner": "", "seen_ts": 0, "delivered_ts": 0})
+            cur.update(kw)
+            self.data["rooms"][rid] = cur
+            self.save()
+
+    def drop_room(self, rid: str) -> None:
+        with self.lock:
+            self.data["rooms"].pop(rid, None)
+            self.save()
+
+    def room_ids(self) -> list[str]:
+        with self.lock:
+            return list(self.data["rooms"])
+
 
 # ====================================================================== 主體
 class CloudClient:
     """events（主執行緒用 drain() 拿）：
-        ("message", {"id", "from", "name", "text", "ts", "via"})   對方傳來的新訊息
-        ("online", bool)                                            連上 / 斷線
-        ("paired", {"partner": 名字或 ""})                           配對狀態改變（含解除配對：paired=False 見 unpaired）
-        ("unpaired", None)
-        ("names", {"me", "partner"})
-        ("result", (callback, value, error))                         call() 的結果
+        ("message", {"room", "id", "from", "name", "text", "ts", "via", "mine"})   朋友傳來的新訊息
+        ("rooms", [{"id", "partner", "test"}])        聊天室列表或朋友名字變了
+        ("todo", {"items": {id: {...}}, "date": "YYYY-MM-DD" 或 ""})   家裡的待辦清單（手機改了也會來）
+        ("settings", {...})                           家裡的設定（起床時間、番茄鐘）
+        ("online", bool)                              連上 / 斷線
+        ("home", {"name", "phones"})                  家的狀態（名字、連了幾支手機）
+        ("reset", None)                               家不見了 / 被移出（回到沒連線的狀態）
+        ("result", (callback, value, error))          call() 的結果
     """
 
     def __init__(self, config: dict, state_path: Path, *, auth_base: str = AUTH_BASE,
@@ -160,9 +239,12 @@ class CloudClient:
         self.token_exp = 0.0
         self._auth_lock = threading.Lock()
         self._stop = threading.Event()
-        self._wake = threading.Event()          # 配對改變 → 串流重新連
-        self._known: set[str] = set()           # 這次開機已經交給狗的訊息 id（避免重複）
-        self._stream_resp = None
+        self._home_wake = threading.Event()
+        self._home_resp = None
+        self.home_data: dict = {}               # 家的副本（家串流維護）
+        self._room_threads: dict[str, dict] = {}
+        self._known: set[str] = set()            # 這次開機已經交給狗的訊息 id
+        self._lock = threading.RLock()
         self.online = False
         self.threads: list[threading.Thread] = []
         if start:
@@ -170,29 +252,63 @@ class CloudClient:
 
     # ------------------------------------------------------------------ 狀態
     @property
-    def paired(self) -> bool:
-        return bool(self.state["room"] and self.state["slot"])
+    def linked(self) -> bool:
+        """有沒有「家」（連過手機或加過朋友）。"""
+        return bool(self.state["home"])
+
+    paired = linked                              # 舊名字
 
     @property
     def my_name(self) -> str:
-        return self.state["my_name"]
+        return self.state["name"]
 
     @property
-    def partner_name(self) -> str:
-        return self.state["partner_name"] or "Your friend"
+    def old_pairing(self) -> bool:
+        return self.state.old_pairing
+
+    def rooms(self) -> list[dict]:
+        """聊天室列表（給選單、訊息視窗用）。還沒有朋友加入的邀請不算。"""
+        out = []
+        for rid in self.state.room_ids():
+            r = self.state.room(rid)
+            test = r.get("slots") == "".join(SLOTS)
+            if r.get("partner") or test:
+                out.append({"id": rid, "partner": r.get("partner") or TEST_NAME, "test": test})
+        out.sort(key=lambda x: (x["test"], x["partner"].lower()))
+        return out
+
+    def partner_of(self, rid: str) -> str:
+        r = self.state.room(rid)
+        return r.get("partner") or (TEST_NAME if r.get("slots") == "".join(SLOTS) else "Friend")
+
+    def my_slot(self, rid: str) -> str:
+        """狗在這個聊天室用的位置（測試聊天室 "ab" → 狗是 a，手機是 b）。"""
+        return (self.state.room(rid).get("slots") or "a")[0]
+
+    def phones(self) -> int:
+        members = self.home_data.get("members") if isinstance(self.home_data, dict) else None
+        if not isinstance(members, dict):
+            return 0
+        return sum(1 for m in members.values() if isinstance(m, dict) and m.get("kind") == "phone")
 
     def start(self) -> None:
-        for fn in (self._stream_loop, self._heartbeat_loop):
+        for fn in (self._home_loop, self._heartbeat_loop):
             t = threading.Thread(target=fn, daemon=True, name=fn.__name__)
             t.start()
             self.threads.append(t)
+        if self.linked:
+            self._sync_room_threads()
 
     def stop(self) -> None:
         self._stop.set()
-        self._wake.set()
-        self._close_stream()
+        self._home_wake.set()
+        self._close(self._home_resp)
+        with self._lock:
+            for t in self._room_threads.values():
+                t["stop"].set()
+                self._close(t.get("resp"))
 
-    def drain(self, limit: int = 50) -> list:
+    def drain(self, limit: int = 100) -> list:
         out = []
         for _ in range(limit):
             try:
@@ -253,17 +369,15 @@ class CloudClient:
                     self.token_exp = time.time() + float(r.get("expires_in", 3600))
                     self.state.update(refresh=r.get("refresh_token", refresh), uid=r.get("user_id", self.state["uid"]))
                     return self.id_token
-                except PermissionError:
+                except (PermissionError, CloudError):
                     pass                               # refreshToken 失效 → 重新匿名登入（會變成新的 uid）
             r = self._http("POST", f"{self.auth_base}/accounts:signUp?key={self.key}", {"returnSecureToken": True})
             self.id_token = r["idToken"]
             self.token_exp = time.time() + float(r.get("expiresIn", 3600))
             old_uid = self.state["uid"]
             self.state.update(uid=r["localId"], refresh=r["refreshToken"])
-            if old_uid and old_uid != r["localId"] and self.paired:
-                # 換了身分，舊的配對失效了
-                self.state.update(room="", slot="", partner_name="")
-                self.events.put(("unpaired", None))
+            if old_uid and old_uid != r["localId"] and self.linked:
+                self._reset_local()                    # 換了身分，舊的家進不去了
             return self.id_token
 
     def _url(self, path: str, query: dict | None = None) -> str:
@@ -283,71 +397,80 @@ class CloudClient:
             except PermissionError:
                 raise CloudError("Permission denied") from None
 
-    # ------------------------------------------------------------------ 配對
-    def _room(self, sub: str = "") -> str:
-        return f"rooms/{self.state['room']}" + (f"/{sub}" if sub else "")
+    # ------------------------------------------------------------------ 家
+    def _home(self, sub: str = "") -> str:
+        return f"homes/{self.state['home']}" + (f"/{sub}" if sub else "")
 
-    def ensure_room(self, my_name: str = "") -> str:
-        """還沒有房間就開一個（自己是 a）。「連我的手機」不用先有朋友。"""
-        if self.paired:
-            if my_name and clean_name(my_name) != self.state["my_name"]:
-                self.set_my_name(my_name)
-            return self.state["room"]
-        name = clean_name(my_name) or "Me"
+    def ensure_home(self, name: str = "") -> str:
+        """還沒有家就建一個（這隻狗是第一個成員）。有名字就順便更新。"""
+        name = clean_name(name)
+        if self.linked:
+            if name and name != self.state["name"]:
+                self.set_my_name(name)
+            return self.state["home"]
+        if not name:
+            raise CloudError("Type your name first")
         self._ensure_token()
-        uid = self.state["uid"]
-        room = random_room_id()
-        self._req("PATCH", f"rooms/{room}", {
-            "meta": {"created": SV_TIMESTAMP, "size": len(SLOTS)},
-            f"members/{uid}": {"slot": "a", "kind": "pet", "joined": SV_TIMESTAMP},
-            "names/a": name,
+        home = random_id()
+        self._req("PATCH", f"homes/{home}", {
+            "meta": {"created": SV_TIMESTAMP},
+            f"members/{self.state['uid']}": {"kind": "pet", "joined": SV_TIMESTAMP},
+            "name": name,
         })
-        self._set_paired(room, "a", name, "")
-        return room
+        self.state.update(home=home, name=name, rooms={})
+        self.state.old_pairing = False
+        self._known.clear()
+        self._restart_home()
+        return home
 
-    def create_pair(self, my_name: str) -> dict:
-        """開新的一組（或用現有的），產生給朋友用的配對碼（對方位置）。"""
-        room = self.ensure_room(my_name)
-        self.state.update(test_mode=False)
-        return {"code": self._make_code(other_slot(self.state["slot"])), "room": room}
+    def link_code(self, name: str = "") -> dict:
+        """「📱 Link my phone」：連自己手機的碼（手機輸入後就在你的家裡）。"""
+        self.ensure_home(name)
+        return {"code": self._make_code("home", self.state["home"])}
 
-    def link_phone(self, my_name: str = "") -> dict:
-        """「📱 Link my phone」：自己位置的碼，手機輸入後就是你自己（朋友收得到你手機傳的）。"""
-        self.ensure_room(my_name)
-        return {"code": self._make_code(self.state["slot"])}
+    def invite_code(self, name: str = "") -> dict:
+        """「💌 Invite a friend」：開一個新聊天室（或用還沒人加入的那個），給朋友的碼。"""
+        self.ensure_home(name)
+        rid = self._pending_room() or self._new_room(test=False)
+        return {"code": self._make_code("room", rid, other_slot(self.my_slot(rid))), "room": rid}
 
-    def test_phone(self, my_name: str = "") -> dict:
-        """「🧪 Test with my phone」：給手機「朋友那一邊」的碼，手機傳的訊息會跑到自己的狗頭上。"""
-        self.ensure_room(my_name)
-        self.state.update(test_mode=True)
-        return {"code": self._make_code(other_slot(self.state["slot"]))}
+    def test_chat(self, name: str = "") -> dict:
+        """「🧪 Test chat」：自己跟自己的聊天室（狗是 a、你的手機是 b），手機傳的訊息會跑到自己的狗頭上。"""
+        self.ensure_home(name)
+        for rid in self.state.room_ids():
+            if self.state.room(rid).get("slots") == "".join(SLOTS):
+                return {"room": rid}
+        return {"room": self._new_room(test=True)}
 
-    def make_link_code(self) -> dict:
-        """已配對：產生自己位置的碼（給自己的手機連）。"""
-        if not self.paired:
-            raise CloudError("Not paired yet")
-        return {"code": self._make_code(self.state["slot"])}
+    def _pending_room(self) -> str:
+        for rid in self.state.room_ids():
+            r = self.state.room(rid)
+            if r.get("slots") and len(r["slots"]) == 1 and not r.get("partner"):
+                return rid
+        return ""
 
-    def friend_code(self) -> dict:
-        """已配對：產生給朋友的碼（對方位置）。用來邀請真的朋友時，測試模式就結束。"""
-        if not self.paired:
-            raise CloudError("Not paired yet")
-        self.state.update(test_mode=False)
-        return {"code": self._make_code(other_slot(self.state["slot"]))}
+    def _new_room(self, test: bool) -> str:
+        home, name = self.state["home"], self.state["name"] or "Me"
+        rid = random_id()
+        slots = "".join(SLOTS) if test else SLOTS[0]
+        body = {"meta": {"created": SV_TIMESTAMP, "size": len(SLOTS)}}
+        for s in slots:
+            body[f"slots/{s}"] = {"home": home}
+        self._req("PATCH", f"rooms/{rid}", body)            # 先建聊天室（規則：還沒有 meta 才能自己佔位置）
+        self._req("PATCH", f"rooms/{rid}/names", {s: (name if i == 0 else TEST_NAME) for i, s in enumerate(slots)})
+        self._req("PUT", self._home(f"rooms/{rid}"), slots)  # 再登記到家裡（規則會檢查位置真的是這個家）
+        self.state.set_room(rid, slots=slots, partner=TEST_NAME if test else "", seen_ts=0, delivered_ts=0)
+        self._sync_room_threads()
+        self._emit_rooms()
+        return rid
 
-    @property
-    def test_mode(self) -> bool:
-        return bool(self.state["test_mode"])
-
-    @property
-    def has_partner(self) -> bool:
-        return bool(self.paired and self.state["partner_name"])
-
-    def _make_code(self, slot: str) -> str:
+    def _make_code(self, kind: str, target: str, slot: str = "") -> str:
         for _ in range(8):
             code = random_code()
-            body = {"room": self.state["room"], "slot": slot, "by": self.state["uid"],
+            body = {"kind": kind, "target": target, "by": self.state["uid"],
                     "exp": int((time.time() + CODE_LIFE_SEC) * 1000)}
+            if slot:
+                body["slot"] = slot
             try:
                 self._req("PUT", f"codes/{code}", body)
                 return code
@@ -357,8 +480,8 @@ class CloudClient:
                 # 這個碼別人正在用（或時間差太多）→ 換一個
         raise CloudError("Couldn't make a code. Is your computer clock right?")
 
-    def join(self, code: str, my_name: str) -> dict:
-        """輸入朋友的碼，加入那一組。"""
+    def join(self, code: str, name: str = "") -> dict:
+        """「🔑 I have a code」：輸入朋友給的碼，加一個聊天室。"""
         code = "".join(ch for ch in str(code) if ch.isdigit())
         if len(code) != 6:
             raise CloudError("The code has 6 numbers")
@@ -366,225 +489,398 @@ class CloudClient:
         info = self._req("GET", f"codes/{code}")
         if not isinstance(info, dict) or info.get("exp", 0) < time.time() * 1000 - 60_000:
             raise CloudError("That code doesn't work. Ask for a new one!")
-        room, slot = info["room"], info["slot"]
-        uid = self.state["uid"]
+        if info.get("kind") == "home":
+            raise CloudError("That's a code for linking a phone. Type it on your phone.")
+        rid, slot = info["target"], info["slot"]
+        if rid in self.state.room_ids():
+            raise CloudError("You're already in that chat")
+        self.ensure_home(name)
+        home = self.state["home"]
         try:
-            self._req("PUT", f"rooms/{room}/members/{uid}",
-                      {"slot": slot, "kind": "pet", "joined": SV_TIMESTAMP, "code": code})
+            self._req("PUT", f"rooms/{rid}/slots/{slot}", {"home": home, "code": code})
         except CloudError:
             raise CloudError("That code doesn't work. Ask for a new one!") from None
-        name = clean_name(my_name)
-        old = self.state["slot"] == slot and self.state["room"] == room
-        self._set_paired(room, slot, name or self.state["my_name"], "", keep_seen=old)
-        if name:
-            self._req("PUT", f"rooms/{room}/names/{slot}", name)
-        self.refresh_names()
-        return {"partner": self.partner_name}
+        self._req("PUT", f"rooms/{rid}/names/{slot}", self.state["name"] or "Friend")
+        self._req("PUT", self._home(f"rooms/{rid}"), slot)
+        self.state.set_room(rid, slots=slot, partner="", seen_ts=0, delivered_ts=0)
+        partner = self._refresh_room_names(rid)
+        self._sync_room_threads()
+        self._emit_rooms()
+        return {"room": rid, "partner": partner}
 
-    def unpair(self) -> None:
-        if self.paired:
+    def leave_room(self, rid: str) -> None:
+        """離開一個聊天室（朋友那邊會看到你不在了）。"""
+        slots = self.state.room(rid).get("slots") or ""
+        for s in slots:
             try:
-                self._req("DELETE", self._room(f"members/{self.state['uid']}"))
+                self._req("DELETE", f"rooms/{rid}/slots/{s}")
             except Exception:
-                pass                                   # 離線也讓本機解除
-        self.state.update(room="", slot="", partner_name="", seen_ts=0, delivered_ts=0, test_mode=False)
-        self._known.clear()
-        self.events.put(("unpaired", None))
-        self._restart_stream()
+                pass
+        try:
+            self._req("DELETE", self._home(f"rooms/{rid}"))
+        except Exception:
+            pass
+        self.state.drop_room(rid)
+        self._sync_room_threads()
+        self._emit_rooms()
 
     def set_my_name(self, name: str) -> None:
         name = clean_name(name)
         if not name:
             raise CloudError("Name can't be empty")
-        if self.paired:
-            self._req("PUT", self._room(f"names/{self.state['slot']}"), name)
-        self.state.update(my_name=name)
+        if self.linked:
+            self._req("PUT", self._home("name"), name)
+            for rid in self.state.room_ids():
+                try:
+                    self._req("PUT", f"rooms/{rid}/names/{self.my_slot(rid)}", name)
+                except Exception:
+                    pass
+        self.state.update(name=name)
 
-    def _set_paired(self, room: str, slot: str, my_name: str, partner: str, keep_seen: bool = False) -> None:
-        kw = dict(room=room, slot=slot, my_name=my_name, partner_name=partner)
-        if not keep_seen:
-            kw.update(seen_ts=0, delivered_ts=0)
-            self._known.clear()
-        self.state.update(**kw)
-        self.events.put(("paired", {"partner": partner}))
-        self._restart_stream()
+    def unlink_phones(self) -> int:
+        """把連在這個家的手機都移掉（手機要重新輸入碼）。"""
+        members = self._req("GET", self._home("members")) or {}
+        n = 0
+        for uid, m in members.items():
+            if isinstance(m, dict) and m.get("kind") == "phone":
+                self._req("DELETE", self._home(f"members/{uid}"))
+                n += 1
+        return n
 
-    def refresh_names(self) -> dict:
-        if not self.paired:
-            return {}
-        names = self._req("GET", self._room("names")) or {}
-        if not isinstance(names, dict):
-            names = {}
-        me = names.get(self.state["slot"]) or self.state["my_name"]
-        partner = names.get(other_slot(self.state["slot"]), "")
-        changed = (me, partner) != (self.state["my_name"], self.state["partner_name"])
-        self.state.update(my_name=me, partner_name=partner)
-        if changed:
-            self.events.put(("names", {"me": me, "partner": partner}))
-        return {"me": me, "partner": partner}
+    def reset(self) -> None:
+        """全部重來：離開所有聊天室、離開家。"""
+        if self.linked:
+            for rid in self.state.room_ids():
+                try:
+                    self.leave_room(rid)
+                except Exception:
+                    pass
+            try:
+                self._req("DELETE", self._home(f"members/{self.state['uid']}"))
+            except Exception:
+                pass
+        self._reset_local()
 
-    def who_joined(self) -> dict:
-        """配對視窗輪詢用：自己這邊有幾支手機、對方叫什麼（也會更新名字）。"""
-        if not self.paired:
-            return {"my_phones": 0, "partner": ""}
-        members = self._req("GET", self._room("members")) or {}
-        me = self.state["slot"]
-        phones = sum(1 for m in members.values() if isinstance(m, dict) and m.get("slot") == me
-                     and m.get("kind") == "phone")
-        names = self.refresh_names()
-        return {"my_phones": phones, "partner": names.get("partner", "")}
-
-    def check_member(self) -> bool:
-        """自己還在房間裡嗎（例如在別台電腦按了解除配對）。"""
-        if not self.paired:
-            return False
-        try:
-            me = self._req("GET", self._room(f"members/{self.state['uid']}"))
-        except CloudError:
-            me = None                                   # 不是成員就讀不到房間
-        if not me:
-            self.state.update(room="", slot="", partner_name="")
-            self.events.put(("unpaired", None))
-            self._restart_stream()
-            return False
-        return True
+    def _reset_local(self) -> None:
+        self.state.update(home="", rooms={})
+        self.home_data = {}
+        self._known.clear()
+        self._sync_room_threads()
+        self.events.put(("reset", None))
+        self._restart_home()
 
     # ------------------------------------------------------------------ 訊息
-    def send(self, text: str) -> dict:
+    def send(self, rid: str, text: str) -> dict:
         text = clean_text(text)
         if not text:
             raise CloudError("Type something first")
-        if not self.paired:
-            raise CloudError("Pair with a friend first")
-        msg = {"from": self.state["slot"], "text": text, "ts": SV_TIMESTAMP, "via": "pet"}
-        r = self._req("POST", self._room("messages"), msg)
-        return {"id": (r or {}).get("name", ""), "text": text}
+        if rid not in self.state.room_ids():
+            raise CloudError("That chat is gone")
+        msg = {"from": self.my_slot(rid), "text": text, "ts": SV_TIMESTAMP, "via": "pet"}
+        r = self._req("POST", f"rooms/{rid}/messages", msg)
+        return {"id": (r or {}).get("name", ""), "text": text, "room": rid}
 
-    def history(self, n: int = HISTORY_N) -> list[dict]:
-        if not self.paired:
+    def history(self, rid: str, n: int = HISTORY_N) -> list[dict]:
+        if rid not in self.state.room_ids():
             return []
-        data = self._req("GET", self._room("messages"), query={"orderBy": '"ts"', "limitToLast": str(n)}) or {}
-        return self._to_list(data, mine_too=True)
+        data = self._req("GET", f"rooms/{rid}/messages", query={"orderBy": '"ts"', "limitToLast": str(n)}) or {}
+        return self._to_list(rid, data, mine_too=True)
 
-    def mark_seen(self, ts: int) -> None:
-        """狗的泡泡被點掉了：記住看到哪裡，並告訴對方「已讀」。"""
+    def mark_seen(self, rid: str, ts: int) -> None:
+        """狗的泡泡被點掉了：記住看到哪裡，並告訴朋友「已讀」。"""
         ts = int(ts)
-        if ts <= int(self.state["seen_ts"] or 0):
+        r = self.state.room(rid)
+        if not r or ts <= int(r.get("seen_ts") or 0):
             return
-        self.state.update(seen_ts=ts)
-        if self.paired:
-            self.call(self._req, "PATCH", self._room(f"status/{self.state['slot']}"), {"seen": ts})
+        self.state.set_room(rid, seen_ts=ts)
+        self.call(self._req, "PATCH", f"rooms/{rid}/status/{self.my_slot(rid)}", {"seen": ts})
 
-    def _mark_delivered(self, ts: int) -> None:
-        if ts <= int(self.state["delivered_ts"] or 0):
+    def _mark_delivered(self, rid: str, ts: int) -> None:
+        if ts <= int(self.state.room(rid).get("delivered_ts") or 0):
             return
-        self.state.update(delivered_ts=ts)
+        self.state.set_room(rid, delivered_ts=ts)
         try:
-            self._req("PATCH", self._room(f"status/{self.state['slot']}"), {"delivered": ts})
+            self._req("PATCH", f"rooms/{rid}/status/{self.my_slot(rid)}", {"delivered": ts})
         except Exception:
             pass
 
-    def _to_list(self, data, mine_too: bool = False) -> list[dict]:
+    def _to_list(self, rid: str, data, mine_too: bool = False) -> list[dict]:
         out = []
         if not isinstance(data, dict):
             return out
-        me = self.state["slot"]
-        names = {me: self.state["my_name"] or "Me", other_slot(me): self.partner_name}
+        me = self.my_slot(rid)
+        partner = self.partner_of(rid)
         for key, m in data.items():
             if not isinstance(m, dict) or not isinstance(m.get("text"), str):
                 continue
             frm = m.get("from", "")
-            if frm == me and not mine_too:
+            mine = frm == me
+            if mine and not mine_too:
                 continue
-            out.append({"id": key, "from": frm, "mine": frm == me, "name": names.get(frm, "Friend"),
+            out.append({"room": rid, "id": key, "from": frm, "mine": mine,
+                        "name": (self.state["name"] or "Me") if mine else partner,
                         "text": m["text"][:MAX_TEXT], "ts": int(m.get("ts") or 0), "via": m.get("via", "")})
         out.sort(key=lambda x: (x["ts"], x["id"]))
         return out
 
-    def _deliver(self, data) -> None:
-        """串流送來的訊息（初始一整包或單則）→ 只交出對方的、還沒看過、這次還沒交過的。"""
-        seen = int(self.state["seen_ts"] or 0)
-        newest = 0
-        if not self.state["partner_name"] and isinstance(data, dict) and data:
+    def _deliver(self, rid: str, data) -> None:
+        """串流送來的訊息 → 只交出朋友的、還沒看過、這次還沒交過的。"""
+        if not isinstance(data, dict) or not data:
+            return
+        r = self.state.room(rid)
+        if not r:
+            return
+        if not r.get("partner") and r.get("slots") != "".join(SLOTS):
             try:
-                self.refresh_names()                    # 朋友剛加入：先拿到名字，泡泡才顯示得出來
+                self._refresh_room_names(rid)            # 朋友剛加入：先拿到名字，泡泡才顯示得出來
             except Exception:
                 pass
-        for m in self._to_list(data):
-            if m["id"] in self._known or m["ts"] <= seen:
+        seen = int(r.get("seen_ts") or 0)
+        newest = 0
+        for m in self._to_list(rid, data):
+            key = f"{rid}/{m['id']}"
+            if key in self._known or m["ts"] <= seen:
                 continue
-            self._known.add(m["id"])
+            self._known.add(key)
             newest = max(newest, m["ts"])
             self.events.put(("message", m))
         if newest:
-            self._mark_delivered(newest)
+            self._mark_delivered(rid, newest)
 
-    # ------------------------------------------------------------------ 背景迴圈
+    def _refresh_room_names(self, rid: str) -> str:
+        names = self._req("GET", f"rooms/{rid}/names") or {}
+        r = self.state.room(rid)
+        slots = r.get("slots") or ""
+        if slots == "".join(SLOTS):
+            partner = TEST_NAME
+        else:
+            partner = next((v for k, v in (names.items() if isinstance(names, dict) else []) if k not in slots), "")
+        if r and partner != r.get("partner"):
+            self.state.set_room(rid, partner=partner)
+            self._emit_rooms()
+        return partner
+
+    def refresh_names(self) -> dict:
+        for rid in self.state.room_ids():
+            try:
+                self._refresh_room_names(rid)
+            except Exception:
+                pass
+        return {"rooms": self.rooms()}
+
+    def _emit_rooms(self) -> None:
+        self.events.put(("rooms", self.rooms()))
+
+    # ------------------------------------------------------------------ 待辦、設定
+    @staticmethod
+    def _todo_body(it: dict) -> dict:
+        return {"text": clean_text(it.get("text", ""), MAX_TODO) or "?", "done": bool(it.get("done")),
+                "ts": int(it.get("ts") or time.time() * 1000), "by": it.get("by") or "pet"}
+
+    def todo_put(self, item: dict) -> None:
+        """新增或更新一項（item 要有 id、text、done、ts）。"""
+        if self.linked and item.get("id"):
+            self._req("PUT", self._home(f"todo/{item['id']}"), self._todo_body(item))
+
+    def todo_remove(self, item_id: str) -> None:
+        if self.linked and item_id:
+            self._req("DELETE", self._home(f"todo/{item_id}"))
+
+    def todo_upload(self, items: list[dict], date_str: str) -> None:
+        """第一次連上：把電腦上的清單整個傳上去（雲端是空的時候）。"""
+        if not self.linked:
+            return
+        body = {it["id"]: self._todo_body(it) for it in items if it.get("id")}
+        if body:
+            self._req("PATCH", self._home("todo"), body)
+        self._req("PUT", self._home("todo_date"), date_str)
+
+    def todo_rollover(self, done_ids: list[str], date_str: str) -> None:
+        """換日：刪掉打勾的項目、更新日期。"""
+        if not self.linked:
+            return
+        if done_ids:
+            self._req("PATCH", self._home("todo"), {i: None for i in done_ids})
+        self._req("PUT", self._home("todo_date"), date_str)
+
+    def settings_put(self, settings: dict) -> None:
+        if self.linked:
+            body = {k: settings[k] for k in ("wake_time", "focus_min", "break_min") if k in settings}
+            self._req("PATCH", self._home("settings"), body)
+
+    # ------------------------------------------------------------------ 背景：家串流
     def _set_online(self, on: bool) -> None:
         if on != self.online:
             self.online = on
             self.events.put(("online", on))
 
-    def _restart_stream(self) -> None:
-        self._wake.set()
-        self._close_stream()
-
-    def _close_stream(self) -> None:
-        r = self._stream_resp
-        if r is not None:
+    @staticmethod
+    def _close(resp) -> None:
+        if resp is not None:
             try:
-                r.close()
+                resp.close()
             except Exception:
                 pass
 
-    def _stream_loop(self) -> None:
+    def _restart_home(self) -> None:
+        self._home_wake.set()
+        self._close(self._home_resp)
+
+    def _home_loop(self) -> None:
         backoff = 2.0
-        first = True
         while not self._stop.is_set():
-            self._wake.clear()
-            if not self.paired:
-                self._wake.wait(30.0)
+            self._home_wake.clear()
+            if not self.linked:
+                self._set_online(False)
+                self._home_wake.wait(30.0)
                 continue
             try:
-                if first:
-                    first = False
-                    if not self.check_member():
-                        continue
-                    self.refresh_names()
-                self._stream_once()
+                self._stream_home()
                 backoff = 2.0
             except PermissionError:
-                self._ensure_token_quiet(force=True)
+                try:
+                    self._ensure_token(force=True)
+                except Exception:
+                    self._set_online(False)
             except CloudError as e:
-                if "Permission" in str(e) and not self.check_member():
-                    continue
+                if "Permission" in str(e):
+                    self._check_home()
                 self._set_online(False)
             except Exception:
-                if not self._wake.is_set():           # 自己關掉串流（配對改變）不算斷線
+                if not self._home_wake.is_set():
                     self._set_online(False)
             if self._stop.is_set():
                 break
-            if not self._wake.is_set():
-                self._wake.wait(backoff)
+            if not self._home_wake.is_set():
+                self._home_wake.wait(backoff)
                 backoff = min(backoff * 2, 60.0)
 
-    def _ensure_token_quiet(self, force: bool = False) -> None:
+    def _check_home(self) -> None:
+        """讀不到家了：是不是被移出（例如在別台電腦按了全部重來）。"""
         try:
-            self._ensure_token(force=force)
-        except Exception:
-            self._set_online(False)
+            me = self._req("GET", self._home(f"members/{self.state['uid']}"))
+        except CloudError:
+            me = None
+        if not me and self.linked:
+            self._reset_local()
 
-    def _stream_once(self) -> None:
-        """連一次 SSE，直到斷線、token 過期、配對改變。"""
-        seen = int(self.state["seen_ts"] or 0)
-        url = self._url(self._room("messages"), {"orderBy": '"ts"', "startAt": str(seen + 1)})
+    def _stream_home(self) -> None:
+        url = self._url(self._home())
         req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
         resp = self.opener.open(req, timeout=90)
-        self._stream_resp = resp
+        self._home_resp = resp
         self._set_online(True)
         parser = SSEParser()
         try:
-            while not self._stop.is_set() and not self._wake.is_set():
+            while not self._stop.is_set() and not self._home_wake.is_set():
+                raw = resp.readline()
+                if not raw:
+                    break
+                ev = parser.feed(raw.decode("utf-8", "replace"))
+                if ev is None:
+                    continue
+                name, payload = ev
+                if name in ("put", "patch"):
+                    msg = json.loads(payload) if payload else None
+                    if not isinstance(msg, dict):
+                        continue
+                    self._on_home_change(msg.get("path", "/"), msg.get("data"), name == "patch")
+                elif name == "auth_revoked":
+                    self._ensure_token(force=True)
+                    return
+                elif name == "cancel":
+                    raise CloudError("Permission denied")
+        finally:
+            self._home_resp = None
+            self._close(resp)
+
+    def _on_home_change(self, path: str, data, merge: bool) -> None:
+        first = path.strip("/").split("/")[0] if path.strip("/") else ""
+        self.home_data = apply_patch(self.home_data, path, data, merge) or {}
+        if not self.home_data and not first:
+            self._check_home()
+            return
+        h = self.home_data
+        if first in ("", "todo", "todo_date"):
+            self.events.put(("todo", {"items": dict(h.get("todo") or {}), "date": h.get("todo_date") or ""}))
+        if first in ("", "settings") and isinstance(h.get("settings"), dict):
+            self.events.put(("settings", dict(h["settings"])))
+        if first in ("", "name") and isinstance(h.get("name"), str) and h["name"] != self.state["name"]:
+            self.state.update(name=h["name"])               # 手機改了名字
+        if first in ("", "members", "name"):
+            self.events.put(("home", {"name": self.state["name"], "phones": self.phones()}))
+        if first in ("", "rooms"):
+            self._apply_room_index(h.get("rooms") or {})
+
+    def _apply_room_index(self, index: dict) -> None:
+        """家裡的聊天室列表（手機加了朋友、別的裝置離開聊天室）→ 本機跟著改。"""
+        if not isinstance(index, dict):
+            index = {}
+        changed = False
+        for rid, slots in index.items():
+            if not isinstance(slots, str):
+                continue
+            r = self.state.room(rid)
+            if not r:
+                self.state.set_room(rid, slots=slots)
+                changed = True
+                try:
+                    self._refresh_room_names(rid)
+                except Exception:
+                    pass
+            elif r.get("slots") != slots:
+                self.state.set_room(rid, slots=slots)
+                changed = True
+        for rid in self.state.room_ids():
+            if rid not in index:
+                self.state.drop_room(rid)
+                changed = True
+        if changed:
+            self._sync_room_threads()
+            self._emit_rooms()
+
+    # ------------------------------------------------------------------ 背景：每個聊天室一條訊息串流
+    def _sync_room_threads(self) -> None:
+        with self._lock:
+            want = set(self.state.room_ids()) if self.linked else set()
+            for rid in list(self._room_threads):
+                if rid not in want:
+                    t = self._room_threads.pop(rid)
+                    t["stop"].set()
+                    self._close(t.get("resp"))
+            for rid in want:
+                if rid not in self._room_threads and not self._stop.is_set():
+                    t = {"stop": threading.Event(), "resp": None}
+                    t["thread"] = threading.Thread(target=self._room_loop, args=(rid, t), daemon=True)
+                    self._room_threads[rid] = t
+                    t["thread"].start()
+
+    def _room_loop(self, rid: str, t: dict) -> None:
+        backoff = 2.0
+        while not self._stop.is_set() and not t["stop"].is_set():
+            try:
+                self._stream_room(rid, t)
+                backoff = 2.0
+            except PermissionError:
+                try:
+                    self._ensure_token(force=True)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            if t["stop"].wait(backoff):
+                break
+            backoff = min(backoff * 2, 60.0)
+
+    def _stream_room(self, rid: str, t: dict) -> None:
+        seen = int(self.state.room(rid).get("seen_ts") or 0)
+        url = self._url(f"rooms/{rid}/messages", {"orderBy": '"ts"', "startAt": str(seen + 1)})
+        req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
+        resp = self.opener.open(req, timeout=90)
+        t["resp"] = resp
+        parser = SSEParser()
+        try:
+            while not self._stop.is_set() and not t["stop"].is_set():
                 raw = resp.readline()
                 if not raw:
                     break
@@ -598,34 +894,33 @@ class CloudClient:
                         continue
                     path, data = msg.get("path", "/"), msg.get("data")
                     if path == "/":
-                        self._deliver(data)
+                        self._deliver(rid, data)
                     elif path.count("/") == 1 and isinstance(data, dict):
-                        self._deliver({path.strip("/"): data})
+                        self._deliver(rid, {path.strip("/"): data})
                 elif name == "auth_revoked":
                     self._ensure_token(force=True)
                     return
                 elif name == "cancel":
                     raise CloudError("Permission denied")
         finally:
-            self._stream_resp = None
-            try:
-                resp.close()
-            except Exception:
-                pass
+            t["resp"] = None
+            self._close(resp)
 
+    # ------------------------------------------------------------------ 背景：心跳
     def _heartbeat_loop(self) -> None:
-        last_names = time.monotonic()
+        last_names = 0.0
         while not self._stop.is_set():
-            if not self.paired:
-                self._stop.wait(5.0)
-                continue
-            try:
-                self._req("PATCH", self._room(f"status/{self.state['slot']}"), {"pet": SV_TIMESTAMP})
-                if not self.state["partner_name"] or time.monotonic() - last_names > NAMES_POLL_SEC:
-                    last_names = time.monotonic()
+            if self.linked:
+                for rid in self.state.room_ids():
+                    try:
+                        self._req("PATCH", f"rooms/{rid}/status/{self.my_slot(rid)}", {"pet": SV_TIMESTAMP})
+                    except Exception:
+                        pass
+                now = time.monotonic()
+                if now - last_names > NAMES_POLL_SEC or any(
+                        not self.state.room(r).get("partner") for r in self.state.room_ids()):
+                    last_names = now
                     self.refresh_names()
-            except Exception:
-                pass
             self._stop.wait(HEARTBEAT_SEC)
 
 

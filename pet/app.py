@@ -1,6 +1,7 @@
 """組裝：設定、圖片、桌寵視窗、右鍵選單、系統匣圖示、取名；
 v0.3：待辦清單、每天起床拉清單、番茄鐘、Settings 視窗。
-v0.4：雙人訊息（cloud.py 連 Firebase；配對 / 訊息視窗在 messaging_ui.py）。"""
+v0.4：雙人訊息（cloud.py 連 Firebase；配對 / 訊息視窗在 messaging_ui.py）。
+v0.4.2：很多朋友（每人一個聊天室）、待辦清單和設定跟手機同步。"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -297,6 +298,7 @@ class PetApp(QObject):
         dlg = SettingsDialog(self.settings)
         if dlg.exec():
             self._check_wake()                   # 改成比現在早的時間、今天還沒拉過 → 馬上拉
+            self._push_settings()                # 手機的設定頁也看得到
 
     def _set_extra(self, key: str, on: bool) -> None:
         self.settings.set_extra(key, on)
@@ -312,12 +314,17 @@ class PetApp(QObject):
             self.cloud = None
             return
         self.pet.attach_messages(Bark(assets_dir(), data_dir()))
-        self.pet.seen_fn = lambda m: self.cloud.mark_seen(m["ts"])
+        self.pet.seen_fn = lambda m: self.cloud.mark_seen(m.get("room", ""), m["ts"])
         self.pet.notify_fn = self._notify_msg
-        self.pet.msg_bubble.replyRequested.connect(lambda: self.open_messages(reply=True))
+        self.pet.msg_bubble.replyRequested.connect(self._reply_current)
+        self.todo.on_change = self._todo_changed          # 本機清單改了 → 傳上 Firebase
+        self._todo_synced = False
         self.cloud_timer = QTimer(self)
         self.cloud_timer.timeout.connect(self._pump)
         self.cloud_timer.start(CLOUD_PUMP_MS)
+        if self.cloud.old_pairing:
+            QTimer.singleShot(4000, lambda: self._notify(
+                "Messages got an update! Please link your phone again: right-click me → 📱 Phone & friends."))
 
     def _pump(self) -> None:
         """把網路執行緒的結果拿到主執行緒處理（Qt 的東西只能在主執行緒碰）。"""
@@ -334,48 +341,105 @@ class PetApp(QObject):
                 elif kind == "online":
                     self.cloud_online = bool(value)
                     if self.msg_win is not None:
-                        self.msg_win.refresh_title(self.cloud_online)
-                elif kind == "unpaired":
+                        self.msg_win.refresh_rooms(self.cloud_online)
+                elif kind == "todo":
+                    self._todo_from_cloud(value)
+                elif kind == "settings":
+                    self._settings_from_cloud(value)
+                elif kind == "reset":
                     self.pet.clear_messages()
+                    self._todo_synced = False
                     self._cloud_changed()
-                elif kind in ("paired", "names"):
+                elif kind in ("rooms", "home"):
                     self._cloud_changed()
             except Exception as e:               # 一個壞掉的事件不要讓狗當掉
                 print("cloud event error:", kind, e)
 
     def _cloud_changed(self) -> None:
         if self.msg_win is not None:
-            self.msg_win.refresh_title()
-        if self.pair_dlg is not None and self.pair_dlg.isVisible() and self.pair_dlg.mode == "settings":
+            self.msg_win.refresh_rooms()
+        if self.pair_dlg is not None and self.pair_dlg.isVisible() and self.pair_dlg.mode == "settings" \
+                and not self.pair_dlg.waiting:
             self.pair_dlg.open_mode("settings")
 
+    # ---- 待辦清單同步
+    def _todo_changed(self, op: str, data) -> None:
+        """本機清單改了（新增 / 打勾 / 刪除 / 換日）→ 背景傳上 Firebase。"""
+        c = self.cloud
+        if c is None or not c.linked or not self._todo_synced:
+            return
+        if op == "put":
+            c.call(c.todo_put, data)
+        elif op == "remove":
+            c.call(c.todo_remove, data)
+        elif op == "rollover":
+            c.call(c.todo_rollover, data[0], data[1])
+
+    def _todo_from_cloud(self, value: dict) -> None:
+        """Firebase 上的清單（手機改了、或剛連上）。第一次連上而雲端是空的 → 把電腦上的傳上去。"""
+        items, date_str = value.get("items") or {}, value.get("date") or ""
+        if not self._todo_synced:
+            self._todo_synced = True
+            if not isinstance(self.cloud.home_data.get("settings"), dict):
+                self._push_settings()            # 第一次連上：把電腦上的時間設定傳上去，手機才看得到
+            if not items and not date_str:
+                self.cloud.call(self.cloud.todo_upload, list(self.todo.items), self.todo.date)
+                return
+        new_from_phone = self.todo.apply_remote(items, date_str)
+        if self.todo.rollover():                 # 雲端的日期比較舊（狗之前沒開）→ 換日
+            pass
+        self.todo_win.refresh()
+        self.todo_win.update()
+        for it in new_from_phone[-1:]:           # 手機加的待辦：狗冒泡泡
+            self.pet.todo_from_phone(it["text"])
+
+    # ---- 設定同步（起床時間、番茄鐘）
+    def _settings_from_cloud(self, value: dict) -> None:
+        changed = False
+        for key in ("wake_time", "focus_min", "break_min"):
+            if key in value and value[key] != self.settings.get(key):
+                self.settings.data[key] = value[key]
+                changed = True
+        if changed:
+            if "wake_time" in value:
+                h, m = parse_hhmm(value["wake_time"])
+                now = datetime.now()
+                if (now.hour, now.minute) < (h, m):
+                    self.settings.data["last_pull_date"] = ""
+            self.settings.save()
+            self._check_wake()
+
+    def _push_settings(self) -> None:
+        if self.cloud is not None and self.cloud.linked:
+            s = self.settings
+            self.cloud.call(self.cloud.settings_put, {"wake_time": s.get("wake_time"),
+                                                      "focus_min": int(s.get("focus_min")),
+                                                      "break_min": int(s.get("break_min"))})
+
+    # ---- 選單
     def _msg_actions(self, menu: QMenu) -> None:
-        """狗身上和系統匣的選單都有。入口分清楚：連自己的手機 / 用手機測試 / 邀請朋友 / 輸入朋友的碼。"""
+        """狗身上和系統匣的選單都有：💌 Messages（有聊天室才有）+「📱 Phone & friends」子選單。"""
         c = self.cloud
         if c is None:
             return
-        if c.has_partner:
-            who = c.partner_name + (" (test)" if c.test_mode else "")
-            menu.addAction(f"💌 Messages with {who}...", self.open_messages)
+        rooms = c.rooms()
+        if rooms:
+            menu.addAction("💌 Messages...", self.open_messages)
             if self.pet.msg_cur is not None:
-                menu.addAction("↩ Reply...", lambda: self.open_messages(reply=True))
+                menu.addAction("↩ Reply...", self._reply_current)
         sub = menu.addMenu("📱 Phone & friends")
-        if c.paired:
-            state = f"Friend: {c.partner_name}" if c.has_partner else "No friend yet"
-            if c.test_mode:
-                state = "Testing with my phone"
-            title = sub.addAction(state)
+        if c.linked:
+            friends = sum(1 for r in rooms if not r["test"])
+            title = sub.addAction(f"Phones: {c.phones()} · Friends: {friends}")
             title.setEnabled(False)
             sub.addSeparator()
         sub.addAction("📱 Link my phone...", lambda: self.open_pair("link"))
-        if not c.has_partner or c.test_mode:
-            sub.addAction("🧪 Test with my phone...", lambda: self.open_pair("test"))
-            sub.addAction("💌 Invite a friend...", lambda: self.open_pair("invite"))
-        if not c.paired:
-            sub.addAction("🔑 I have a code...", lambda: self.open_pair("join"))
-        if c.paired:
+        sub.addAction("💌 Invite a friend...", lambda: self.open_pair("invite"))
+        sub.addAction("🔑 I have a code...", lambda: self.open_pair("join"))
+        sub.addAction("🧪 Test chat...", lambda: self.open_pair("test"))
+        if c.linked:
             sub.addSeparator()
-            sub.addAction("⚙ Pairing...", lambda: self.open_pair("settings"))
+            sub.addAction("⚙ Settings...", lambda: self.open_pair("settings"))
 
     def open_pair(self, mode: str = "link") -> None:
         from .messaging_ui import PairDialog
@@ -386,16 +450,20 @@ class PetApp(QObject):
         self.pair_dlg.raise_()
         self.pair_dlg.activateWindow()
 
-    def open_messages(self, reply: bool = False) -> None:
+    def _reply_current(self) -> None:
+        room = (self.pet.msg_cur or {}).get("room", "")
+        self.open_messages(reply=True, room=room)
+
+    def open_messages(self, reply: bool = False, room: str = "") -> None:
         if self.cloud is None:
             return
-        if not self.cloud.has_partner:
+        if not self.cloud.rooms():
             self.open_pair("invite")
             return
         from .messaging_ui import MessagesWindow
         if self.msg_win is None:
             self.msg_win = MessagesWindow(self.cloud)
-        self.msg_win.show_window(focus_reply=reply)
+        self.msg_win.show_window(room=room, focus_reply=reply)
 
     def _notify_msg(self, title: str, text: str) -> None:
         """番茄鐘專心中收到訊息：Windows 通知（狗不跑）。"""
