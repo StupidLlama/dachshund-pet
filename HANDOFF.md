@@ -1,8 +1,8 @@
-# 交接文件 — 臘腸狗桌寵 v0.3 → v0.4
+# 交接文件 — 臘腸狗桌寵 v0.4 → v0.5
 
-> 開新對話時說：「照 桌面\dachshund-pet\HANDOFF.md 繼續做 v0.4」。Claude 會連上電腦直接改資料夾，不用傳 zip。
+> 開新對話時說：「照 桌面\dachshund-pet\HANDOFF.md 繼續做 v0.5」。Claude 會連上電腦直接改資料夾，不用傳 zip。
 >
-> **現況（2026-10-19）**：v0.3（待辦清單、狗搬清單、每天起床、番茄鐘、Settings、圓角泡泡）程式寫完，假 PySide6 測試全過，**還沒在 Evan 的 Windows 上實測**。下一個對話先處理 Evan 的實測回報（見「v0.3 要請 Evan 確認的」），再開始 v0.4。
+> **現況（2026-10-19 晚上）**：v0.3 Evan 實測過、沒問題。v0.4（Firebase 雙人訊息 + 手機 PWA）完成並 push：安全規則和手機網頁**已在真的 Firebase 上端到端測過**（見「v0.4 實作 → 真實測試」），**桌寵端 Python 連真的 Firebase 還沒在 Evan 的 Windows 上測**。下一個對話先問 Evan v0.4 實測結果（見「v0.4 要請 Evan 確認的」）並修好，再開始 v0.5。
 
 ## 專案目標（截止：2026-10-19 週一晚上）
 Windows 桌寵臘腸狗：
@@ -234,7 +234,7 @@ Evan 答題卡另外兩題：**刪除項目 = 滑過出現 ×**、**More interac
 拉出來（嘴巴對標籤誤差 0、清單只往外動）、busy 時點狗和選單不打斷、打勾 / 全做完 / 新增 / 刪除 / 點擊判定、標籤高度 = 地面 − 0.22S、推回去（鼻子誤差 0）、早上睡覺 → 醒來 → 拉、已開著只打招呼、被拎著延後、番茄鐘整輪（專心 → 叮 → 休息 → 叮 → 消失）、專心時 Shh / 打勾安靜 / 點標籤清單自己滑、搬清單時不能開始番茄鐘、泡泡不超出螢幕、換日清除、起床檢查（同一天一次、開機補拉、不方便時延後）、各 paintEvent 跑過一遍（假 QPainter，只抓 Python 錯）。
 **真 Qt 的 API 和畫面沒辦法在這裡測**，要 Evan 實測。
 
-### v0.3 要請 Evan 確認的
+### v0.3 要請 Evan 確認的（2026-10-19 Evan 說測過了，沒問題）
 1. 點紅標籤狗會不會跑過去拉、嘴巴有沒有咬在標籤上（`BITE`）、推的時候鼻子有沒有貼著紙邊（`NOSE`）
 2. 清單的字有沒有坐在藍線上、字大小、紙寬（`todo_window.py` 的 `lh`、`fp`、`W`）
 3. 「Add a task...」點得到、打得了字嗎？打完字狗還在清單上面嗎？
@@ -245,23 +245,102 @@ Evan 答題卡另外兩題：**刪除項目 = 滑過出現 ×**、**More interac
 8. 改起床時間成幾分鐘後，看早上那段是否正常
 
 ## 之後的版本
-v0.4 Firebase + 手機 PWA 雙人訊息（頭上冒泡泡，Evan 要先建 Firebase）；v0.5 餵零食、打呼、打包 exe + GitHub Actions + Releases；v1.0 交接文件。原訂 2026-10-19 週一晚上全部完成，已經延後，時程要跟 Evan 重新確認。
+~~v0.4 Firebase + 手機 PWA 雙人訊息~~（完成）；**v0.5 餵零食、打呼、打包 exe + GitHub Actions + Releases**；v1.0 交接文件。原訂 2026-10-19 週一晚上全部完成，已經延後，時程要跟 Evan 重新確認。
+
+### v0.5 開工前要給 Evan 的答題卡（還沒定）
+- 餵零食：從哪裡拿零食（右鍵 / 拖一根骨頭給牠）、吃的動畫（沒有新圖 → 用現有 happy/sit 湊，或請 Evan 畫）、會不會有「肚子餓」
+- 打呼：睡覺時頭上冒「Zzz」就好，還是要打呼聲音（合成 / Evan 錄）
+- 打包：PyInstaller 單一 exe 或資料夾版（資料夾版啟動快、`assets/` 可以直接換圖）；圖示用 `assets/icon.png`；`firebase/config.json` 要一起帶（`settings.firebase_config_path()` 已經會找 exe 旁邊的）
+- GitHub Actions：推 tag `v*` 自動在 windows-latest 打包、上傳到 Releases；要不要順便跑 `tests/`（假 PySide6，Linux 也能跑）
+- 別人下載後：第一次開的說明、SmartScreen「未知的發行者」警告怎麼跟使用者說
+- 手機推播（FCM）要不要做（v0.4 先不做）
 
 ## v0.4 Firebase 設定（2026-10-19，Evan 已完成）
 - 專案 **`message-76c6c`**（Evan 的 Google 帳號），免費 Spark 方案
 - **Realtime Database**：`https://message-76c6c-default-rtdb.asia-southeast1.firebasedatabase.app`（新加坡），建立時選**鎖定模式** → 安全規則還要寫（配對碼綁定的兩個人才能讀寫自己的房間），寫好給 Evan 貼到 Realtime Database →「規則」
-- **Authentication → 匿名登入已啟用**（現在在左邊選單「安全性 Security」底下，不是「建構」）
+- **Authentication → 匿名登入已啟用**（現在在左邊選單「安全性 Security」底下，不是「建構」）。⚠ 第一次其實沒開成功（API 回 `ADMIN_ONLY_OPERATION`），2026-10-19 22:20 Evan 重開後才真的啟用
 - **網頁應用程式** `dachshund-pwa` 已註冊；完整 web config 存在 **`firebase/config.json`**（公開設定，不是密碼）。有 measurementId（Analytics 開著），用不到可以不載入 analytics SDK
 - 桌寵端：用 REST + 匿名登入的 idToken（`identitytoolkit.googleapis.com/v1/accounts:signUp?key=API_KEY` 拿 idToken/refreshToken，`securetoken.googleapis.com` 換新），讀寫 `databaseURL/路徑.json?auth=ID_TOKEN`，收訊息用 SSE（`Accept: text/event-stream`），不用裝 firebase-admin
 - 之後想上架成真 App：同一份 PWA 用 Capacitor 包（Apple 開發者 99 美元/年、Google Play 25 美元一次、iOS 要 Mac/Xcode 或雲端編譯）
 
-## v0.4 要做的（還沒定規格）
-Firebase + 手機 PWA 雙人訊息：兩個人用配對碼綁定，手機傳訊息 → 對方桌寵頭上冒泡泡（用現在的 `Bubble`）。**Evan 要先建 Firebase 專案**。開工前要先給 Evan 答題卡決定：
-- Firebase 用哪個（Realtime Database / Firestore）、登入方式（匿名 + 配對碼？）
-- PWA 放哪裡（GitHub Pages？Firebase Hosting？）
-- 配對碼流程（桌寵右鍵產生 6 碼 → 手機輸入？）
-- 泡泡要顯示多久、訊息要不要存歷史、桌寵能不能回訊息、收到時狗要做什麼動作 / 要不要叮一聲
-- 桌寵端的 Python 怎麼連 Firebase（REST + 輪詢 / SSE 串流；不要裝太大的套件，exe 打包會變大）
+## v0.4 實作（2026-10-19 完成）
+
+### Evan 的答題卡
+| 項目 | 決定 |
+|---|---|
+| 資料庫 / 登入 | Realtime Database + 匿名登入 |
+| 手機網頁放哪 | GitHub Pages（repo 的 `docs/`，網址 https://stupidllama.github.io/dachshund-pet/ ，Evan 已開好） |
+| 配對 | 桌寵產生 6 碼；**先做 2 人**，資料結構留多人空間（`SLOTS = "ab"`，改長就能多人，規則和 cloud.py 都要改） |
+| 方向 | 雙向；手機像聊天室，有完整紀錄 |
+| 泡泡 | 一直顯示到點掉；對方的狗沒開時訊息先存著，開機後送到 |
+| 離線訊息 | 開機後一則一則冒 |
+| 紀錄 | 手機看得到；桌寵右鍵看最近 20 則 |
+| 收到時 | 頭上紅色「!」→ 跑到螢幕中間 → 汪 → 泡泡。**番茄鐘中**：「!」幾秒後消失 + Windows 通知 |
+| 手機介面 | 英文 + EvanHand |
+| 連線 | REST + SSE |
+| 字數 | 60 字；英數字用 EvanHand，其他字用合適的字型（Claude 選：電腦 = 標楷體 `DFKai-SB`，手機 = Google Fonts 霞鶩文楷 `LXGW WenKai TC`） |
+| 快捷訊息 | Claude 寫 5 個：Miss you! / Drink water! / Good luck today! / Good night! / Call me?（`docs/app.js` 的 `QUICK`） |
+| 手機推播 | **v0.4 不做**（要 FCM，之後再說） |
+
+### 資料結構（Realtime Database）
+```
+codes/{6 碼}                 {room, slot, by, exp}   10 分鐘內有效、可重複用（狗和手機都能用同一組碼）
+rooms/{room}/meta            {created, size: 2}
+rooms/{room}/members/{uid}   {slot: a|b, kind: pet|phone, joined, code?}   每台裝置一筆（一個人可以有狗 + 手機）
+rooms/{room}/names/{slot}    名字（≤20 字）
+rooms/{room}/messages/{id}   {from: slot, text: 1~60 字, ts: 伺服器時間, via: pet|phone}   不能改、不能刪
+rooms/{room}/status/{slot}   {pet: 狗心跳, delivered: 狗收到的最新 ts, seen: 狗被點掉的最新 ts}
+```
+- 安全規則：`tools/build_rules.py` 產生 `firebase/database.rules.json`（**Evan 已貼到 Firebase 並發布**）。改規則 → `py tools/build_rules.py` → 請 Evan 用 `clip < "%USERPROFILE%\Desktop\dachshund-pet\firebase\database.rules.json"` 複製、貼到 Firebase →「規則」→ 發布
+- 規則重點：知道碼才讀得到 `codes/{碼}`（不能列出全部）；只有房間成員讀得到房間；加入要帶有效的碼且 slot 要跟碼一樣；訊息的 `from` 必須是自己的 slot、`ts` 必須是伺服器時間、長度 1~60；只能改自己 slot 的名字和 status
+- room id = 20 碼亂數英數字；配對碼 6 位數（10 分鐘過期，碼被猜中的風險可接受）
+
+### 新檔
+| 檔案 | 內容 |
+|---|---|
+| `pet/cloud.py` | `CloudClient`（不依賴 Qt，只用內建 urllib + threading）：匿名登入、換 token、`create_pair` / `join` / `make_link_code` / `friend_code` / `unpair` / `set_my_name` / `send` / `history` / `mark_seen`；背景執行緒：SSE 串流收訊息（`orderBy="ts"&startAt=seen+1`）、斷線重連（2→60 秒）、心跳（60 秒）、每 5 分鐘抓名字。結果放進 `events` queue，主執行緒 `drain()`。`call(fn, *args, callback=)` 在背景跑、結果回主執行緒。本機存檔 `%APPDATA%\DachshundPet\cloud.json`（uid、refreshToken、room、slot、名字、seen_ts、delivered_ts） |
+| `pet/messaging_ui.py` | `PairDialog`（沒配對：名字 +「Make a code」/ 輸入朋友的碼「Join」；顯示碼的畫面有倒數、每 3 秒看朋友加入了沒；已配對：改名、「Link my phone」、「New code for my friend」、「Unpair」）、`MessagesWindow`（最近 20 則 + 打字回覆，QTextBrowser + HTML） |
+| `pet/sounds.py` | `make_bark_wav()` 合成兩聲汪（`assets/sounds/bark.wav`，Evan 可換）、`Bark`（= `pomodoro.Ding` 換檔名） |
+| `docs/` | 手機 PWA：`index.html`、`style.css`、`app.js`（Firebase JS SDK 10.12.2 from gstatic）、`sw.js`（離線殼，改網頁要把 `CACHE` 版本 +1）、`manifest.webmanifest`、`icons/`（從 `assets/icon.png` 做的）、`fonts/EvanHand.ttf`、`.nojekyll` |
+| `tools/build_rules.py` | 安全規則產生器 |
+| `tests/fake_firebase.py` | 本機假 Firebase（登入、REST、SSE），給 `test_v04_cloud.py` 用 |
+| `tests/test_v04_cloud.py` | cloud.py：配對、收發、已讀、重開只補沒看過的、token 過期 auth_revoked、改名、心跳、解除配對、call() |
+| `tests/test_v04_pet.py` | 狗的反應狀態機、換行、配對視窗、訊息視窗、app._pump / 選單（假 PySide6） |
+
+### 狗的反應（`pet_window.py` 的「v0.4 訊息」那段）
+- `on_message(msg)` → `msg_queue`；`_tick_msgs()` 每幀決定什麼時候冒：搬清單、被拎著、在空中、叼滑鼠（`HANDS_OFF`）時等；**專心中**（番茄鐘 focus 或正走去番茄）→ `alert_until = now + 3 秒` + `notify_fn`（系統匣通知，每則新訊息通知一次）；**休息中** → 原地汪 + 泡泡；其他 → `_start_msg_seq()`：hop（紅「!」）→ `msg_go`（run 跑到這個螢幕中間，速度 max(活潑度×2.6, 240)）→ `_msg_bark()`（面向前、汪、happy 跳）→ `_show_next_msg()` → `msg_wait`（坐著，直到點掉）
+- 點狗 / 點泡泡 = `dismiss_message()` → `seen_fn(msg)`（cloud.mark_seen）；還有下一則就小跳一下馬上換（不再跑、不再汪）。跑過去的路上點狗 = 直接冒；被拎走 = 落地的地方冒（`_choose_next` 處理）
+- `MsgBubble`（`bubble.py`）：可以點的泡泡，第一行紅色小字「名字:」、右上「+N more」，訊息自動換行（英文照單字、中文照字，`wrap_text()`），最寬 250×k；左鍵 = 關、右鍵 = `replyRequested`（開訊息視窗）
+- 訊息泡泡在的時候 `say()` 不冒（避免兩個泡泡疊在一起）；紅「!」是程式畫的（`_paint_alert`，`ALERT_RED #E2553B`）
+- `clear_messages()`：解除配對時清掉
+- 常數在 `pet_window.py` 上面：`ALERT_FOCUS_SEC`、`MSG_RUN_SPEED`
+
+### app.py
+- `_start_cloud()`：讀 `firebase_config_path()`（`settings.py`，打包後找 exe 旁邊的 `firebase/config.json`），失敗就關掉訊息功能、狗照常；`QTimer` 每 200ms `_pump()`：message → `pet.on_message` + 訊息視窗、result → callback、online → 訊息視窗標題、unpaired → `pet.clear_messages()`
+- 選單（狗和系統匣都有）：沒配對 =「Pair with a friend...」；配對後 =「Messages with ○○...」、（有訊息泡泡時）「Reply...」、「Pair...」
+- `quit()` 會 `cloud.stop()`
+
+### 手機 PWA（`docs/`）
+- 筆記本紙風格（跟桌寵同一套顏色）：聊天背景是藍橫線 + 左邊紅線；對方的訊息 = 跟狗頭上一樣的白泡泡，自己的 = 狗的黃色 `#F7E6B8`
+- 開啟 → 匿名登入 → localStorage 有 `dp_room`/`dp_slot` 且還是成員 → 聊天室；否則配對畫面（6 碼 + 名字）
+- 聊天室：最近 100 則、日期分隔（Today / Mon 10/18）、24 小時制、自己最後一則下面 Sent / Delivered / Seen、標題下「○○'s dog is awake / asleep」（狗心跳 2.5 分鐘內 = 醒著）、快捷訊息（點了直接送）、60 字計數、右上 ⋯ 選單（改名、解除配對）
+- iPhone：Safari 開網址 → 分享 →「加入主畫面」。**加到主畫面後是另一個儲存空間，要在主畫面那個再配對一次**
+
+### 真實測試（2026-10-19 22:20，透過 Evan 電腦的內建瀏覽器，打真的 Firebase）
+- 一開始匿名登入回 `ADMIN_ONLY_OPERATION` → 匿名登入其實沒開，Evan 重新啟用後就好了（已加明確錯誤訊息：手機「Sign-in is turned off...」、桌寵「Anonymous sign-in is off in Firebase」）
+- 安全規則 26 項全過：建房、產碼、別人不能蓋掉碼、不能列出所有碼、外人讀不到房間、沒碼/錯碼不能加入、b 的碼不能佔 a、只能改自己名字、不能假冒對方傳訊息、61 字擋掉、假時間擋掉、外人不能傳、orderBy ts 查詢（index 有效）、訊息不能改不能刪、只能寫自己的 status、中文訊息、解除配對後讀不到、刪自己的碼
+- PWA 實際操作：輸入碼配對 → 聊天室顯示對方的狗醒著 → 點快捷訊息 → 假狗的 SSE 立刻收到（格式跟 cloud.py 解析的一樣：先 `put "/"` null，之後 `put "/{id}"`）→ 狗回覆中文 + emoji 手機立刻出現（霞鶩文楷有載入）→ 狗寫 delivered/seen 後手機即時變「Seen」
+- 測試用的房間（`e2e...Test`、`dog...Pet`）留在資料庫裡，沒有影響，可以不理
+
+### v0.4 要請 Evan 確認的（桌寵端 Python 還沒在 Windows 上連過真的 Firebase）
+1. 狗右鍵「Pair with a friend...」→「Make a code」有沒有出現 6 碼（失敗的話錯誤訊息是什麼）
+2. 手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入那組碼 → 從手機傳訊息 → 狗有沒有「!」→ 跑到中間 → 汪 → 泡泡；汪的聲音 OK 嗎
+3. 點泡泡 / 點狗會關掉、手機變「Seen」；連傳好幾則會一則一則來（「+N more」）
+4. 狗右鍵「Messages with ○○...」看得到紀錄、回覆後手機收得到；在泡泡上按右鍵會開回覆視窗
+5. 番茄鐘專心中收到：只有「!」+ Windows 通知，休息時才冒泡泡
+6. 關掉狗 → 手機傳 → 再開狗，訊息有沒有補送
+7. 中文訊息在泡泡上的字（標楷體）好不好看、換行對不對
+8. 配對視窗、訊息視窗長怎樣（醜的地方）
 
 ## GitHub（2026-10-19 起）
 - Repo：**https://github.com/StupidLlama/dachshund-pet**（Public，分支 `main`）
@@ -274,12 +353,15 @@ Firebase + 手機 PWA 雙人訊息：兩個人用配對碼綁定，手機傳訊�
   5. device_bash：電腦端連不到 GitHub（proxy 403），所以 push 成功後用 `git update-ref refs/remotes/origin/main main` 手動更新 origin/main，再刪掉 `.push.bundle`。Evan 自己在 VS Code 按「同步」或 `git pull` 也會更新
 - commit 訊息用英文、說清楚改了什麼
 
+### 另一種同步方式（v0.4 用的，比較快）
+在雲端改 → 雲端 `add_repo`（push）後直接 commit + `git push origin main` → `git bundle create /mnt/user-data/outputs/x.bundle <舊>..main` → `device_commit_files` 放到專案的 `.push.bundle` → `device_request_delete_permission` → device_bash：`git fetch .push.bundle main:incoming && git merge --ff-only incoming && git branch -D incoming && git update-ref refs/remotes/origin/main main && rm .push.bundle`。兩邊 commit 一模一樣。雲端的 clone 在 `/home/claude/dachshund-pet`（新對話要重新 clone）
+
 ## 新對話開始時
 1. 連上 Evan 的電腦（Windows 筆電 laptop-oe33r92j）。專案在 **`C:\Users\user\Desktop\dachshund-pet`**，用 `device_request_folder_access` 要這個資料夾。只改這一份
-2. 讀這份 HANDOFF.md 和程式碼（`pet/pet_window.py` 約 1400 行是主體；v0.3 新檔見上面表格）。先問 Evan v0.3 實測結果（上面 8 點）並修好，再進 v0.4
-3. v0.4 規格還沒定：先給 Evan 答題卡（上面那幾題），照他的習慣，開工前再給大分類工作清單等他說 OK
+2. 讀這份 HANDOFF.md 和程式碼（`pet/pet_window.py` 約 1600 行是主體；v0.3、v0.4 新檔見上面表格）。先問 Evan v0.4 實測結果（上面 8 點）並修好，再進 v0.5
+3. v0.5 規格還沒定：先給 Evan 答題卡（「v0.5 開工前要給 Evan 的答題卡」），照他的習慣，開工前再給大分類工作清單等他說 OK
 4. 寫檔用 device_bash 直接改資料夾裡的檔案（就地改，用 python 讀 → 換字串 → 寫回，不要從工具輸出重打整個檔）；新圖或大檔用 `device_commit_files`
-5. 測試：device 的 VM 和雲端都裝不到 PySide6（PyPI 被擋）→ 跑 `python3 tests/test_v03.py`（假 PySide6）；新功能就照這個檔加測試
+5. 測試：device 的 VM 和雲端都裝不到 PySide6（PyPI 被擋）、也連不到 Firebase → 跑 `python3 tests/test_v03.py`、`python3 tests/test_v04_pet.py`（假 PySide6）、`python3 tests/test_v04_cloud.py`（本機假 Firebase）；新功能照這些檔加測試。要打真的 Firebase：用 Evan 電腦的**內建瀏覽器**（`mcp__remote-devices__Claude_Browser__*`）開 https://stupidllama.github.io/dachshund-pet/ ，在頁面上用 JS fetch REST（見「真實測試」）；注意 `preview_start` 會重用同一個分頁，要開第二個分頁用 `tabs_create` + `navigate`
 6. 改完提醒 Evan：先在狗身上右鍵「Quit」，再執行 `cd /d "%USERPROFILE%\Desktop\dachshund-pet" && run.bat`（或雙擊桌面捷徑）重開，不然單一實例只會叫出舊的那隻
 7. Claude 的截圖抓不到透明置頂的狗視窗，畫面一律請 Evan 回報
-8. Evan 的習慣：回覆用繁體中文；要他決定的事給答題卡；指令給可複製的格式；完成小版本（v0.4）後寫完整交接並請他開新對話
+8. Evan 的習慣：回覆用繁體中文；要他決定的事給答題卡；指令給可複製的格式；完成小版本（v0.5）後寫完整交接並請他開新對話
