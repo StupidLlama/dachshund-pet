@@ -263,6 +263,17 @@ Firebase + 手機 PWA 雙人訊息：兩個人用配對碼綁定，手機傳訊�
 - 泡泡要顯示多久、訊息要不要存歷史、桌寵能不能回訊息、收到時狗要做什麼動作 / 要不要叮一聲
 - 桌寵端的 Python 怎麼連 Firebase（REST + 輪詢 / SSE 串流；不要裝太大的套件，exe 打包會變大）
 
+## GitHub（2026-10-19 起）
+- Repo：**https://github.com/StupidLlama/dachshund-pet**（Public，分支 `main`）
+- **Evan 要 Claude 每次改完就幫他 commit + push**（他說 "push it for me from now on"）
+- 做法（Evan 的電腦上沒有可用的 GitHub 憑證給 device_bash，所以走 bundle）：
+  1. `device_request_delete_permission` 要專案資料夾的刪除權限（git 要刪自己的 .lock 檔，沒有權限 commit 會壞）
+  2. device_bash：`git add -A && git -c user.name=StupidLlama -c user.email=stupidllamareligion@gmail.com commit -m "..."`，再 `git bundle create .push.bundle origin/main..main`（`.push.bundle` 已在 .gitignore）
+  3. `device_stage_files` 把 `.push.bundle` 拿到雲端
+  4. 雲端：`add_repo`（owner StupidLlama、repo dachshund-pet、access push）→ clone 到 `/home/claude/dachshund-pet` → `git fetch <bundle> main:incoming && git merge --ff-only incoming && git push origin main`
+  5. device_bash：`git fetch origin`（公開 repo 讀得到）更新 origin/main，刪掉 `.push.bundle`
+- commit 訊息用英文、說清楚改了什麼
+
 ## 新對話開始時
 1. 連上 Evan 的電腦（Windows 筆電 laptop-oe33r92j）。專案在 **`C:\Users\user\Desktop\dachshund-pet`**，用 `device_request_folder_access` 要這個資料夾。只改這一份
 2. 讀這份 HANDOFF.md 和程式碼（`pet/pet_window.py` 約 1400 行是主體；v0.3 新檔見上面表格）。先問 Evan v0.3 實測結果（上面 8 點）並修好，再進 v0.4

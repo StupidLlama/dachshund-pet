@@ -6,3 +6,4 @@ dist/
 *.spec
 .venv/
 assets_original/
+.push.bundle
