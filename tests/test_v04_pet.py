@@ -331,6 +331,7 @@ fc._phones = 1; dlg._tick()
 assert "phone is linked" in status_text(dlg) and not dlg.waiting
 # 有家了：直接給碼
 dlg.open_mode("link"); assert fc.calls[-1] == ("link_code", ("",)) and dlg.code == "111111"
+assert dlg.go_btn is None and dlg.name is None      # 舊頁面的按鈕已被 Qt 刪掉：不能再拿來用（Evan 實測的當機）
 # 💌 邀請朋友
 dlg.open_mode("invite"); assert dlg.code == "333333" and dlg.waiting == "friend" and dlg.wait_room == "rNew"
 fc._rooms.append({"id": "rNew", "partner": "Amy", "test": False})

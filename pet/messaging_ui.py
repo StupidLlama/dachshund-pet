@@ -123,7 +123,7 @@ class PairDialog(QDialog):
         self.waiting = ""                    # "phone" / "friend" / ""：正在等誰加入
         self.wait_room = ""
         self.phones_before = 0
-        self.name = None
+        self.name = self.go_btn = self.join_btn = self.code_in = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(1000)
@@ -139,7 +139,9 @@ class PairDialog(QDialog):
                 w.deleteLater()
             elif item.layout() is not None:
                 _clear_layout(item.layout())
+        # 舊頁面的元件已經交給 Qt 刪掉了：一律忘記，不然再碰到會「already deleted」當掉
         self.status = self.count_lab = None
+        self.name = self.go_btn = self.join_btn = self.code_in = None
         self.waiting = ""
         self.code = ""
 
@@ -215,7 +217,7 @@ class PairDialog(QDialog):
         if not self.cloud.linked and not name:
             self._status("Type your name first", True)
             return
-        if hasattr(self, "go_btn"):
+        if self.go_btn is not None:
             self.go_btn.setEnabled(False)
         if self.status is None:
             self._add_status()
@@ -228,7 +230,7 @@ class PairDialog(QDialog):
             self.cloud.call(self.cloud.test_chat, name, callback=self._got_test)
 
     def _failed(self, err: str) -> None:
-        if hasattr(self, "go_btn"):
+        if self.go_btn is not None:
             self.go_btn.setEnabled(True)
         self._status(err, True)
 
@@ -343,7 +345,8 @@ class PairDialog(QDialog):
     def _joined(self, value, err) -> None:
         self.on_change()
         if err:
-            self.join_btn.setEnabled(True)
+            if self.join_btn is not None:
+                self.join_btn.setEnabled(True)
             self._status(err, True)
             return
         self._clear()
