@@ -29,8 +29,8 @@
 <main id="pair" class="screen center" hidden>
   <form id="pair-form" class="paper-card" autocomplete="off">
     <img class="dog" src="icons/icon-192.png" alt="" width="88" height="88">
-    <h1>Pair with your friend</h1>
-    <p class="muted">Right-click a dachshund and pick <b>Pair...</b> to get a 6-number code.</p>
+    <h1>Link to a dog</h1>
+    <p class="muted">On your computer, right-click your dog → <b>📱 Phone &amp; friends</b> → <b>📱 Link my phone</b>. Got a code from a friend? It goes here too.</p>
     <label for="code-in">Code</label>
     <input id="code-in" class="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" required>
     <label for="name-in">Your name</label>
@@ -58,7 +58,7 @@
   </header>
 
   <section id="thread" class="thread" aria-live="polite" aria-label="Messages">
-    <p id="empty" class="empty muted" hidden>No messages yet. Say hi to their dog!</p>
+    <p id="empty" class="empty muted" hidden></p>
   </section>
 
   <footer class="compose">

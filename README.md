@@ -75,8 +75,10 @@ py main.py
 
 | 功能 | 怎麼用 |
 |---|---|
-| 配對 | 右鍵「Pair with a friend...」→ 打名字 →「Make a code」，把 6 位數的碼給朋友。朋友在他的狗右鍵「Pair...」輸入，或用手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入。碼 10 分鐘內有效 |
-| 連自己的手機 | 配對後右鍵「Pair...」→「Link my phone」，手機打開上面的網址輸入那組碼。手機可以「加入主畫面」當 App 用 |
+| 選單 | 狗右鍵 →「📱 Phone & friends」：📱 Link my phone / 🧪 Test with my phone / 💌 Invite a friend / 🔑 I have a code / ⚙ Pairing |
+| 連自己的手機 | 「📱 Link my phone」→ 打名字 → 手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入那組碼。**不用先有朋友**。手機可以「加入主畫面」當 App 用 |
+| 自己測試 | 「🧪 Test with my phone」：手機假裝成朋友，手機傳的訊息會跑到自己的狗頭上。測完在手機「⋯ → Unpair」，再用「💌 Invite a friend」 |
+| 邀請朋友 | 「💌 Invite a friend」→ 把碼給朋友，朋友在他的狗「🔑 I have a code」輸入，或在手機網頁輸入。碼 10 分鐘內有效 |
 | 收到訊息 | 狗頭上冒紅色「!」→ 跑到螢幕中間 → 汪！→ 泡泡一直顯示到你點掉（點泡泡或點狗）。好幾則會一則一則來 |
 | 番茄鐘專心中 | 只冒「!」幾秒 + Windows 通知，泡泡等休息時間才出現 |
 | 回覆 / 看紀錄 | 右鍵「Messages with ○○...」（最近 20 則 + 打字回覆）；在訊息泡泡上按右鍵也能直接回覆 |

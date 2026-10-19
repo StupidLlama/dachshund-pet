@@ -157,7 +157,27 @@ function openChat() {
   setInterval(updatePresence, 30_000);
 }
 
+const hasFriend = () => !!names[other(slot)];
+
+function updateEmpty() {
+  $("empty").textContent = hasFriend()
+    ? "No messages yet. Say hi to their dog!"
+    : "No friend yet. On your computer: right-click your dog → 📱 Phone & friends → 💌 Invite a friend.";
+}
+
 function updatePresence() {
+  updateEmpty();
+  if (!hasFriend()) {
+    $("partner").textContent = names[slot] ? `Hi, ${names[slot]}!` : "Linked!";
+    $("presence").classList.remove("awake");
+    $("presence-text").textContent = "Your phone is linked. Waiting for a friend to join.";
+    $("send-btn").disabled = true;
+    for (const b of $("quick").querySelectorAll("button")) b.disabled = true;
+    return;
+  }
+  $("partner").textContent = partnerName();
+  $("send-btn").disabled = false;
+  for (const b of $("quick").querySelectorAll("button")) b.disabled = false;
   const awake = partnerStatus.pet && now() - partnerStatus.pet < ONLINE_MS;
   $("presence").classList.toggle("awake", !!awake);
   $("presence-text").textContent = awake

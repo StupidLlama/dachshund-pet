@@ -200,7 +200,32 @@ wait_event(C3, "result")
 assert box["err"] == "The code has 6 numbers"
 ok("call() results come back with callbacks")
 
-for c in (A2, B, C3):
+# ---------------------------------------------------------------- v0.4.1 入口：不用朋友就能連手機、測試模式
+D = client("D")
+r = D.link_phone("Evan")
+assert D.paired and D.state["slot"] == "a" and fb.get(f"codes/{r['code']}")["slot"] == "a"
+room_d = D.state["room"]
+assert D.link_phone("")["code"] and D.state["room"] == room_d          # 同一個房間
+assert not D.has_partner and not D.test_mode
+t = D.test_phone()
+assert D.test_mode and fb.get(f"codes/{t['code']}")["slot"] == "b"
+phone = client("Phone")
+phone.join(t["code"], "Phone")
+w = D.who_joined()
+assert w["partner"] == "Phone" and D.has_partner and w["my_phones"] == 0
+mine = client("MyPhone")
+fb.set(f"rooms/{room_d}/members/{mine.state['uid'] or 'x'}", None)
+# 自己的手機（kind phone、slot a）
+mine._ensure_token()
+fb.set(f"rooms/{room_d}/members/{mine.state['uid']}", {"slot": "a", "kind": "phone", "joined": 1})
+assert D.who_joined()["my_phones"] == 1
+inv = D.create_pair("")
+assert not D.test_mode and fb.get(f"codes/{inv['code']}")["slot"] == "b"
+D.unpair()
+assert not D.paired and not D.test_mode
+ok("link phone without a friend, test mode, who_joined, invite ends test mode")
+
+for c in (A2, B, C3, D, phone, mine):
     c.stop()
 fb.close()
 print("ALL CLOUD TESTS PASSED")

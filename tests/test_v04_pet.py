@@ -263,58 +263,88 @@ from datetime import datetime
 class FakeCloud:
     def __init__(self):
         self.paired = False
-        self.state = {"partner_name": "", "my_name": ""}
+        self.state = {"partner_name": "", "my_name": "", "test_mode": False}
         self.my_name = ""
         self.partner_name = "Your friend"
+        self.has_partner = False
+        self.test_mode = False
         self.calls = []
         self.fail = None
+        self.phones = 0
     def call(self, fn, *args, callback=None):
         self.calls.append((fn.__name__, args))
         if self.fail:
             callback(None, self.fail); return
         callback(fn(*args), None)
-    def create_pair(self, name):
-        self.paired = True; self.my_name = name; return {"code": "123456", "room": "r"}
+    def _room(self, name):
+        if not self.paired:
+            self.paired = True; self.my_name = name
+    def link_phone(self, name): self._room(name); return {"code": "111111"}
+    def test_phone(self, name): self._room(name); self.test_mode = True; return {"code": "222222"}
+    def create_pair(self, name): self._room(name); self.test_mode = False; return {"code": "333333", "room": "r"}
     def join(self, code, name):
-        self.paired = True; self.state["partner_name"] = "Evan"; self.partner_name = "Evan"; return {"partner": "Evan"}
-    def make_link_code(self): return {"code": "654321"}
-    def friend_code(self): return {"code": "111222"}
-    def refresh_names(self): return {"me": self.my_name, "partner": "Amy"}
+        self.paired = True; self.has_partner = True; self.state["partner_name"] = "Evan"; self.partner_name = "Evan"
+        return {"partner": "Evan"}
+    def who_joined(self): return {"my_phones": self.phones, "partner": self.state["partner_name"]}
     def set_my_name(self, n): self.my_name = n
-    def unpair(self): self.paired = False
+    def unpair(self): self.paired = False; self.has_partner = False
     def history(self):
         return [{"id": "a", "mine": False, "name": "Amy", "text": "hi <b>", "ts": 1760000000000},
                 {"id": "b", "mine": True, "name": "Me", "text": "yo", "ts": 1760000060000}]
     def send(self, t): return {"id": "z", "text": t}
 
 
+def status_text(d):
+    """假的 QLabel 全部是同一個 MagicMock → 看最近幾次 setText。"""
+    return str(d.status.setText.call_args_list[-4:])
+
+
 fc = FakeCloud()
 changes = []
 dlg = UI.PairDialog(fc, on_change=lambda: changes.append(1))
-dlg.name.setText("")
-dlg._make(); assert "name first" in str(dlg.status.setText.call_args)
-dlg.name.setText("Evan"); dlg._make()
-assert fc.calls[-1] == ("create_pair", ("Evan",)) and dlg.code == "123456" and dlg.waiting and changes
 dlg._vis = True
+# 📱 連自己的手機：沒有房間 → 先問名字
+dlg.open_mode("link")
+dlg.name.setText(""); dlg._request_code(); assert "name first" in status_text(dlg)
+dlg.name.setText("Evan"); dlg._request_code()
+assert fc.calls[-2:] == [("link_phone", ("Evan",)), ("who_joined", ())] and dlg.code == "111111" and dlg.waiting
+fc.phones = 1
 for _ in range(3): dlg._tick()
-assert dlg.waiting is False and "Paired with Amy" in str(dlg.status.setText.call_args)
-dlg.show_home(); assert dlg.code == ""
-dlg._link_phone(); assert dlg.code == "654321" and not dlg.waiting
-dlg._friend_code(); assert dlg.code == "111222"
-fc2 = FakeCloud(); dlg2 = UI.PairDialog(fc2)
-dlg2.name.setText("Amy"); dlg2.code_in.setText("123456"); dlg2._join()
-assert fc2.paired and "Paired with Evan" in str(dlg2.status.setText.call_args)
-fc3 = FakeCloud(); fc3.fail = "That code doesn't work. Ask for a new one!"
-dlg3 = UI.PairDialog(fc3); dlg3.name.setText("x"); dlg3.code_in.setText("999999"); dlg3._join()
-assert "doesn't work" in str(dlg3.status.setText.call_args)
+assert "phone is linked" in status_text(dlg) and not dlg.waiting
+# 已經有房間：直接給碼，不再問名字
+dlg.open_mode("link"); assert dlg.code == "111111"
+# 🧪 測試：手機加入當朋友
+dlg.open_mode("test"); assert dlg.code == "222222" and fc.test_mode
+fc.state["partner_name"] = "Phone"; fc.has_partner = True; fc.partner_name = "Phone"
+for _ in range(3): dlg._tick()
+assert "Phone joined" in status_text(dlg) and "watch your dog" in status_text(dlg)
+# 💌 邀請朋友：結束測試模式
+dlg.open_mode("invite"); assert dlg.code == "333333" and not fc.test_mode
+fc.state["partner_name"] = "Amy"
+for _ in range(3): dlg._tick()
+assert "Amy joined" in status_text(dlg)
+# ⚙ 設定：改名、解除配對
+dlg.open_mode("settings"); dlg.name.setText("Ev"); dlg._save_name(); assert fc.my_name == "Ev"
 UI.QMessageBox.question.return_value = UI.QMessageBox.Yes
-dlg._unpair(); assert not fc.paired
+dlg._unpair(); assert not fc.paired and "Unpaired" in status_text(dlg)
+# 🔑 朋友那邊輸入碼
+fc2 = FakeCloud(); dlg2 = UI.PairDialog(fc2); dlg2.open_mode("join")
+dlg2.code_in.setText("12"); dlg2.name.setText("Amy"); dlg2._join(); assert "6 numbers" in status_text(dlg2)
+dlg2.code_in.setText("123456"); dlg2._join(); assert fc2.paired and fc2.calls[-1][0] == "join"
+fc3 = FakeCloud(); fc3.fail = "That code doesn't work. Ask for a new one!"
+dlg3 = UI.PairDialog(fc3); dlg3.open_mode("join"); dlg3.name.setText("x"); dlg3.code_in.setText("999999"); dlg3._join()
+assert "doesn't work" in status_text(dlg3)
+# 已經有朋友時「I have a code」→ 提示先解除
+fc4 = FakeCloud(); fc4.paired = fc4.has_partner = True; fc4.partner_name = "Amy"
+dlg4 = UI.PairDialog(fc4); dlg4.open_mode("join"); assert "code_in" not in dlg4.__dict__
+# 碼過期提示
+dlg.open_mode("invite"); dlg.name.setText("Evan"); dlg._request_code(); dlg.code_exp = UI._now() - 1; dlg._tick(); assert "expired" in str(dlg.count_lab.setText.call_args)
 assert UI.fmt_code("123456") == "123 456"
 now = datetime(2026, 10, 19, 22, 0)
 ts_today = int(datetime(2026, 10, 19, 21, 3).timestamp() * 1000)
 ts_old = int(datetime(2026, 10, 18, 9, 5).timestamp() * 1000)
 assert UI.fmt_time(ts_today, now) == "21:03" and UI.fmt_time(ts_old, now) == "10/18 09:05"
-ok("pair dialog flows (make code, friend joins, link phone, join, error, unpair)")
+ok("pair dialog: link phone (no friend needed), test with phone, invite, join, settings, expiry")
 
 mw = UI.MessagesWindow(fc)
 mw.show_window(focus_reply=True)
@@ -341,13 +371,25 @@ PetApp._pump(fake)
 assert pet.msg_queue == deque() or True
 assert ("cb", 5) in changes and fake.cloud_online is False and mw.items[-1]["text"] == "from pump"
 assert not pet.msg_queue                     # unpaired 清掉了
-menu = MagicMock()
-fake.cloud = FakeCloud(); fake.cloud.paired = False
-PetApp._msg_actions(fake, menu); assert "Pair with a friend..." in str(menu.addAction.call_args_list)
-fake.cloud.paired = True; fake.cloud.partner_name = "Amy"
-menu = MagicMock(); PetApp._msg_actions(fake, menu)
-assert "Messages with Amy..." in str(menu.addAction.call_args_list) and "Reply" not in str(menu.addAction.call_args_list)
-fake.cloud = None; menu = MagicMock(); PetApp._msg_actions(fake, menu); assert not menu.addAction.called
+def labels(m):
+    out = [str(c.args[0]) for c in m.addAction.call_args_list]
+    sub = m.addMenu.return_value
+    return out + [str(c.args[0]) for c in sub.addAction.call_args_list]
+fake.cloud = FakeCloud()
+menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
+assert {"📱 Link my phone...", "🧪 Test with my phone...", "💌 Invite a friend...", "🔑 I have a code..."} <= set(L), L
+assert not any(x.startswith("💌 Messages") for x in L)
+fake.cloud.paired = True
+menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
+assert "No friend yet" in L and "⚙ Pairing..." in L and "🔑 I have a code..." not in L
+fake.cloud.has_partner = True; fake.cloud.partner_name = "Amy"
+menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
+assert "💌 Messages with Amy..." in L and "💌 Invite a friend..." not in L and "Friend: Amy" in L
+assert not any("Reply" in x for x in L)
+fake.cloud.test_mode = True; fake.cloud.partner_name = "Phone"
+menu = MagicMock(); PetApp._msg_actions(fake, menu); L = labels(menu)
+assert "💌 Messages with Phone (test)..." in L and "💌 Invite a friend..." in L and "Testing with my phone" in L
+fake.cloud = None; menu = MagicMock(); PetApp._msg_actions(fake, menu); assert not menu.addAction.called and not menu.addMenu.called
 ok("app pump + menus")
 
 print("ALL PET MESSAGE TESTS PASSED")

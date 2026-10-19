@@ -72,7 +72,17 @@ def _button(text: str, fn, kind: str | None = None):
 
 # ====================================================================== 配對
 class PairDialog(QDialog):
-    """沒配對：取名字 → 產生配對碼 / 輸入朋友的碼。已配對：連手機、再產生朋友的碼、改名、解除配對。"""
+    """四個入口（右鍵選單直接開對的那一頁）：
+        link    📱 Link my phone        你自己的手機（不用先有朋友）
+        test    🧪 Test with my phone   手機假裝成朋友，訊息會跑到自己的狗頭上
+        invite  💌 Invite a friend      給朋友的碼
+        join    🔑 I have a code        輸入朋友給的碼（朋友那邊用）
+        settings ⚙ Pairing              改名、解除配對
+    還沒有房間時，link / test / invite 會先問名字。
+    """
+
+    TITLES = {"link": "📱 Link my phone", "test": "🧪 Test with my phone", "invite": "💌 Invite a friend",
+              "join": "🔑 Join a friend's dog", "settings": "⚙ Pairing"}
 
     def __init__(self, cloud: CloudClient, on_change=lambda: None, parent=None):
         super().__init__(parent, FLAGS)
@@ -81,20 +91,21 @@ class PairDialog(QDialog):
         self.setWindowTitle("Pair")
         self.setStyleSheet(STYLE)
         self.setFont(hand_font(19))
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(440)
         self.lay = QVBoxLayout(self)
-        self.lay.setContentsMargins(20, 14, 20, 16)
+        self.lay.setContentsMargins(22, 14, 22, 16)
         self.lay.setSpacing(10)
+        self.mode = "link"
         self.code = ""
         self.code_exp = 0.0
         self.status: QLabel | None = None
         self.count_lab: QLabel | None = None
         self.waiting = False
+        self.name = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(1000)
         self._polls = 0
-        self.show_home()
 
     # ---------------------------------------------------------------- 版面
     def _clear(self) -> None:
@@ -108,6 +119,7 @@ class PairDialog(QDialog):
                 _clear_layout(item.layout())
         self.status = self.count_lab = None
         self.waiting = False
+        self.code = ""
 
     def _status(self, text: str, error: bool = False) -> None:
         if self.status is not None:
@@ -128,109 +140,143 @@ class PairDialog(QDialog):
                 row.addWidget(w)
         return box
 
-    def show_home(self) -> None:
-        self._clear()
-        self.code = ""
-        if self.cloud.paired:
-            self._view_paired()
-        else:
-            self._view_new()
+    def _steps(self, lines: list[str]) -> None:
+        """編號步驟（真的是先後順序）。"""
+        text = "<br>".join(f"<b>{i}.</b> {t}" for i, t in enumerate(lines, 1))
+        lab = _label(text, 17, wrap=True)
+        lab.setTextFormat(Qt.RichText)
+        lab.setOpenExternalLinks(True)
+        self.lay.addWidget(lab)
 
-    def _view_new(self) -> None:
-        self.lay.addWidget(_label("Pair with a friend", 28))
-        self.lay.addWidget(_label("Send messages between your dog and your friend's dog or phone.", 15, "hint", True))
-        self.lay.addWidget(_label("Your name", 18))
+    def _add_status(self, text: str = "") -> None:
+        self.status = _label(text, 15, "status", True)
+        self.lay.addWidget(self.status)
+
+    def open_mode(self, mode: str) -> None:
+        """右鍵選單呼叫：開到指定那一頁。"""
+        self.mode = mode
+        self._clear()
+        self.lay.addWidget(_label(self.TITLES[mode], 28))
+        if mode == "join":
+            self._view_join()
+        elif mode == "settings":
+            self._view_settings()
+        elif not self.cloud.paired:
+            self._view_name_first()
+        else:
+            self._request_code()
+
+    show_home = open_mode   # 相容舊的呼叫
+
+    # ---- 第一次：先問名字
+    def _view_name_first(self) -> None:
+        intro = {
+            "link": "Connect your phone so you can send messages from it.",
+            "test": "Your phone pretends to be a friend. Messages you send from it pop up on your own dog.",
+            "invite": "Make a code for your friend. They type it into their dog or their phone.",
+        }[self.mode]
+        self.lay.addWidget(_label(intro, 16, "hint", True))
+        self.lay.addWidget(_label("First, what's your name?", 18))
         self.name = QLineEdit(self.cloud.my_name)
         self.name.setMaxLength(20)
         self.name.setPlaceholderText("e.g. Evan")
-        self.lay.addWidget(self.name)
-        self.make_btn = _button("Make a code", self._make)
-        self.lay.addWidget(self._row(self.make_btn, "stretch"))
-        self.lay.addWidget(_label("Got a code from your friend?", 18))
+        self.name.returnPressed.connect(self._request_code)
+        self.go_btn = _button("Get a code", self._request_code)
+        self.lay.addWidget(self._row(self.name, self.go_btn))
+        self._add_status()
+
+    def _request_code(self) -> None:
+        name = self.name.text().strip() if self.name is not None and self.mode != "settings" else ""
+        if not self.cloud.paired and not name:
+            self._status("Type your name first", True)
+            return
+        if hasattr(self, "go_btn"):
+            self.go_btn.setEnabled(False)
+        if self.status is None:
+            self._add_status()
+        self._status("Working...")
+        fn = {"link": self.cloud.link_phone, "test": self.cloud.test_phone, "invite": self.cloud.create_pair}[self.mode]
+        self.cloud.call(fn, name, callback=self._got_code)
+
+    def _got_code(self, value, err) -> None:
+        self.on_change()
+        if err:
+            if hasattr(self, "go_btn"):
+                self.go_btn.setEnabled(True)
+            self._status(err, True)
+            return
+        self._view_code(value["code"])
+
+    # ---- 顯示碼
+    def _view_code(self, code: str) -> None:
+        mode = self.mode
+        self._clear()
+        self.code = code
+        self.code_exp = _now() + CODE_LIFE_SEC
+        self.lay.addWidget(_label(self.TITLES[mode], 28))
+        link = f'<a href="{PWA_URL}" style="color:#E2553B">{PWA_URL.replace("https://", "")}</a>'
+        if mode == "link":
+            steps = [f"On your phone, open {link}", "Type this code and your name, then tap <b>Join</b>",
+                     "Done! Messages you send from your phone go to your friend's dog"]
+        elif mode == "test":
+            steps = [f"On your phone, open {link}", "Type this code and any name (like <b>Phone</b>), then tap <b>Join</b>",
+                     "Send a message from your phone and watch your dog!",
+                     "When you're done: phone <b>⋯</b> → <b>Unpair</b>, then use 💌 Invite a friend"]
+        else:
+            steps = ["Send this code to your friend",
+                     f"They right-click their dog → 🔑 <b>I have a code</b>, or open {link} on their phone",
+                     "When they join, you can start sending messages"]
+        big = _label(fmt_code(code), 52, "code")
+        big.setAlignment(Qt.AlignCenter)
+        big.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.lay.addWidget(big)
+        self.count_lab = _label("", 15, "hint")
+        self.count_lab.setAlignment(Qt.AlignCenter)
+        self.lay.addWidget(self.count_lab)
+        self._steps(steps)
+        self._add_status("Waiting for your phone..." if mode != "invite" else "Waiting for your friend...")
+        self.lay.addWidget(self._row("stretch", _button("Close", self.accept, "light")))
+        self.waiting = True
+        self._before = None                          # 第一次輪詢的結果 = 基準
+        self.cloud.call(self.cloud.who_joined, callback=self._who)
+        self._tick()
+
+    # ---- 朋友那邊：輸入碼
+    def _view_join(self) -> None:
+        if self.cloud.has_partner and not self.cloud.test_mode:
+            self.lay.addWidget(_label(f"You're already paired with {self.cloud.partner_name}. "
+                                      "Unpair first (⚙ Pairing) to join someone else.", 16, "hint", True))
+            self.lay.addWidget(self._row("stretch", _button("Close", self.accept, "light")))
+            return
+        self.lay.addWidget(_label("Type the code your friend gave you.", 16, "hint", True))
         self.code_in = QLineEdit()
         self.code_in.setMaxLength(6)
         self.code_in.setPlaceholderText("123456")
         self.code_in.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,6}"), self.code_in))
-        self.code_in.returnPressed.connect(self._join)
-        self.join_btn = _button("Join", self._join, "light")
-        self.lay.addWidget(self._row(self.code_in, self.join_btn))
-        self.status = _label("", 15, "status", True)
-        self.lay.addWidget(self.status)
-
-    def _view_paired(self) -> None:
-        partner = self.cloud.state["partner_name"]
-        title = f"Paired with {partner}" if partner else "Paired! Waiting for your friend"
-        self.lay.addWidget(_label(title, 26, wrap=True))
+        f = hand_font(30)
+        self.code_in.setFont(f)
+        self.code_in.setAlignment(Qt.AlignCenter)
+        self.lay.addWidget(self.code_in)
         self.lay.addWidget(_label("Your name", 18))
         self.name = QLineEdit(self.cloud.my_name)
         self.name.setMaxLength(20)
-        self.lay.addWidget(self._row(self.name, _button("Save", self._save_name, "light")))
-        self.lay.addWidget(self._row(_button("Link my phone", self._link_phone), "stretch"))
-        self.lay.addWidget(self._row(_button("New code for my friend", self._friend_code, "light"), "stretch"))
-        self.lay.addWidget(self._row(_button("Unpair", self._unpair, "danger"), "stretch",
-                                     _button("Close", self.accept, "light")))
-        self.status = _label("", 15, "status", True)
-        self.lay.addWidget(self.status)
-        if not partner:
-            self.waiting = True
-
-    def _view_code(self, code: str, for_phone: bool) -> None:
-        self._clear()
-        self.code = code
-        self.code_exp = _now() + CODE_LIFE_SEC
-        self.lay.addWidget(_label("Link your phone" if for_phone else "Your pair code", 26))
-        big = _label(fmt_code(code), 48, "code")
-        big.setAlignment(Qt.AlignCenter)
-        big.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.lay.addWidget(big)
-        link = f'<a href="{PWA_URL}" style="color:#E2553B">{PWA_URL}</a>'
-        if for_phone:
-            text = f"On your phone, open<br>{link}<br>and type this code."
-        else:
-            text = ("Give this code to your friend.<br>They type it into their dog (right-click → Pair...)"
-                    f"<br>or on their phone: {link}")
-        info = _label(text, 16, wrap=True)
-        info.setTextFormat(Qt.RichText)
-        info.setOpenExternalLinks(True)
-        self.lay.addWidget(info)
-        self.count_lab = _label("", 15, "hint")
-        self.lay.addWidget(self.count_lab)
-        self.status = _label("" if for_phone else "Waiting for your friend...", 15, "status", True)
-        self.lay.addWidget(self.status)
-        self.lay.addWidget(self._row("stretch", _button("Done", self.show_home)))
-        self.waiting = not for_phone and not self.cloud.state["partner_name"]
-        self._tick()
-
-    # ---------------------------------------------------------------- 動作
-    def _busy(self, text: str = "Working...") -> None:
-        self._status(text)
-
-    def _make(self) -> None:
-        name = self.name.text().strip()
-        if not name:
-            self._status("Type your name first", True)
-            return
-        self.make_btn.setEnabled(False)
-        self._busy()
-        self.cloud.call(self.cloud.create_pair, name, callback=self._made)
-
-    def _made(self, value, err) -> None:
-        self.on_change()
-        if err:
-            if hasattr(self, "make_btn"):
-                self.make_btn.setEnabled(True)
-            self._status(err, True)
-            return
-        self._view_code(value["code"], for_phone=False)
+        self.name.setPlaceholderText("e.g. Amy")
+        self.name.returnPressed.connect(self._join)
+        self.join_btn = _button("Join", self._join)
+        self.lay.addWidget(self._row(self.name, self.join_btn))
+        self._add_status()
 
     def _join(self) -> None:
         code = self.code_in.text().strip()
         name = self.name.text().strip()
+        if len(code) != 6:
+            self._status("The code has 6 numbers", True)
+            return
         if not name:
-            self._status("Type your name first", True)
+            self._status("Type your name too", True)
             return
         self.join_btn.setEnabled(False)
-        self._busy()
+        self._status("Working...")
         self.cloud.call(self.cloud.join, code, name, callback=self._joined)
 
     def _joined(self, value, err) -> None:
@@ -239,25 +285,36 @@ class PairDialog(QDialog):
             self.join_btn.setEnabled(True)
             self._status(err, True)
             return
-        self.show_home()
-        self._status(f"Paired with {value['partner']}! Say hi!" if value.get("partner") else "Paired!")
+        self._clear()
+        self.lay.addWidget(_label("🎉 Paired!", 28))
+        who = value.get("partner") or "your friend"
+        self.lay.addWidget(_label(f"You can now send messages with {who}. Right-click your dog → "
+                                  f"💌 Messages.", 17, wrap=True))
+        self.lay.addWidget(self._row("stretch", _button("Close", self.accept)))
 
-    def _link_phone(self) -> None:
-        self._busy()
-        self.cloud.call(self.cloud.make_link_code, callback=lambda v, e: self._got_code(v, e, True))
-
-    def _friend_code(self) -> None:
-        self._busy()
-        self.cloud.call(self.cloud.friend_code, callback=lambda v, e: self._got_code(v, e, False))
-
-    def _got_code(self, value, err, for_phone: bool) -> None:
-        if err:
-            self._status(err, True)
-            return
-        self._view_code(value["code"], for_phone)
+    # ---- 設定：改名、解除配對
+    def _view_settings(self) -> None:
+        c = self.cloud
+        if not c.paired:
+            state = "Not paired yet."
+        elif c.has_partner:
+            state = f"Paired with {c.partner_name}" + (" (test phone)" if c.test_mode else "")
+        else:
+            state = "No friend yet. Use 💌 Invite a friend."
+        self.lay.addWidget(_label(state, 17, "hint", True))
+        if c.paired:
+            self.lay.addWidget(_label("Your name", 18))
+            self.name = QLineEdit(c.my_name)
+            self.name.setMaxLength(20)
+            self.lay.addWidget(self._row(self.name, _button("Save", self._save_name, "light")))
+            self.lay.addWidget(self._row(_button("Unpair", self._unpair, "danger"), "stretch",
+                                         _button("Close", self.accept, "light")))
+        else:
+            self.lay.addWidget(self._row("stretch", _button("Close", self.accept, "light")))
+        self._add_status()
 
     def _save_name(self) -> None:
-        self._busy("Saving...")
+        self._status("Saving...")
         self.cloud.call(self.cloud.set_my_name, self.name.text(), callback=self._saved)
 
     def _saved(self, value, err) -> None:
@@ -265,33 +322,46 @@ class PairDialog(QDialog):
         self._status(err or "Saved!", bool(err))
 
     def _unpair(self) -> None:
-        partner = self.cloud.partner_name
-        ans = QMessageBox.question(self, "Unpair", f"Stop sending messages with {partner}?")
+        who = self.cloud.partner_name if self.cloud.has_partner else "your phone"
+        ans = QMessageBox.question(self, "Unpair", f"Stop sending messages with {who}? "
+                                   "Your phone and your friend will need a new code.")
         if ans != QMessageBox.Yes:
             return
-        self._busy()
+        self._status("Working...")
         self.cloud.call(self.cloud.unpair, callback=self._unpaired)
 
     def _unpaired(self, value, err) -> None:
         self.on_change()
-        self.show_home()
+        self.open_mode("settings")
+        self._status("Unpaired.")
 
     # ---------------------------------------------------------------- 每秒
     def _tick(self) -> None:
         if self.count_lab is not None and self.code:
             left = int(self.code_exp - _now())
-            self.count_lab.setText(f"Expires in {left // 60}:{left % 60:02d}" if left > 0 else
-                                   "This code expired. Press Done and make a new one.")
+            self.count_lab.setText(f"Code works for {left // 60}:{left % 60:02d}" if left > 0 else
+                                   "This code expired. Close this and get a new one.")
         if self.waiting and self.isVisible():
             self._polls += 1
-            if self._polls % 3 == 0:                 # 每 3 秒看一次朋友加入了沒
-                self.cloud.call(self.cloud.refresh_names, callback=self._names)
+            if self._polls % 3 == 0:                 # 每 3 秒看一次有沒有人加入
+                self.cloud.call(self.cloud.who_joined, callback=self._who)
 
-    def _names(self, value, err) -> None:
-        if not err and value and value.get("partner") and self.waiting:
+    def _who(self, value, err) -> None:
+        """有人用這組碼加入了嗎：自己的手機 → my_phones 變多；朋友 / 測試手機 → 對方名字出現或改變。"""
+        if err or not value or not self.waiting:
+            return
+        if self._before is None:
+            self._before = value
+            return
+        if self.mode == "link" and value["my_phones"] > self._before["my_phones"]:
             self.waiting = False
             self.on_change()
-            self._status(f"Paired with {value['partner']}!")
+            self._status("🎉 Your phone is linked!")
+        elif self.mode in ("invite", "test") and value["partner"] and value["partner"] != self._before["partner"]:
+            self.waiting = False
+            self.on_change()
+            extra = " Send a message from your phone and watch your dog!" if self.mode == "test" else ""
+            self._status(f"🎉 {value['partner']} joined!{extra}")
 
 
 def _clear_layout(layout) -> None:

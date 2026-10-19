@@ -332,11 +332,19 @@ rooms/{room}/status/{slot}   {pet: 狗心跳, delivered: 狗收到的最新 ts, 
 - PWA 實際操作：輸入碼配對 → 聊天室顯示對方的狗醒著 → 點快捷訊息 → 假狗的 SSE 立刻收到（格式跟 cloud.py 解析的一樣：先 `put "/"` null，之後 `put "/{id}"`）→ 狗回覆中文 + emoji 手機立刻出現（霞鶩文楷有載入）→ 狗寫 delivered/seen 後手機即時變「Seen」
 - 測試用的房間（`e2e...Test`、`dog...Pet`）留在資料庫裡，沒有影響，可以不理
 
+### v0.4.1 連手機更簡單（2026-10-19，Evan 要求）
+Evan 覺得連手機的流程太繞（要先配對朋友才能連自己的手機）。答題卡：**不要 QR code**、**要「Test with my phone」**、**選單要 emoji**。
+- 右鍵（狗和系統匣）：有朋友時最上面「💌 Messages with ○○...」（有訊息泡泡時加「↩ Reply...」）；子選單「📱 Phone & friends」：狀態列（Friend: ○○ / No friend yet / Testing with my phone）、📱 Link my phone、🧪 Test with my phone（沒朋友或測試中才有）、💌 Invite a friend（同上）、🔑 I have a code（沒配對才有）、⚙ Pairing（改名、解除配對）
+- `cloud.py`：`ensure_room(name)`（沒房間就開一個，自己是 a）、`link_phone()`（自己 slot 的碼，**不用先有朋友**）、`test_phone()`（對方 slot 的碼 + `test_mode=True`）、`create_pair()` / `friend_code()` 會結束測試模式、`who_joined()`（自己這邊幾支手機 + 對方名字，配對視窗輪詢用）、`has_partner`、`test_mode`（存在 cloud.json）。對方還沒名字時，心跳每次（60 秒）都抓名字；收到訊息但還沒名字也會先抓
+- `PairDialog.open_mode(mode)`：link / test / invite / join / settings 五頁；沒房間時 link/test/invite 先問名字；顯示碼的頁面有大字碼、倒數、編號步驟（每種模式不同）、每 3 秒 `who_joined` → 「🎉 Your phone is linked!」/「🎉 ○○ joined!」
+- 手機網頁：標題「Link to a dog」、說明寫狗的選單路徑；還沒有朋友時標題「Hi, ○○!」、說明「Your phone is linked. Waiting for a friend to join.」、送出鍵和快捷訊息先停用、空白處提示怎麼邀請朋友。`sw.js` 快取版本 v0.4.2
+- 測試模式之後邀請真的朋友：測試手機要先在手機上「⋯ → Unpair」（規則不讓狗刪別人的成員資料），朋友加入後名字會蓋掉 Phone
+
 ### v0.4 要請 Evan 確認的（桌寵端 Python 還沒在 Windows 上連過真的 Firebase）
-1. 狗右鍵「Pair with a friend...」→「Make a code」有沒有出現 6 碼（失敗的話錯誤訊息是什麼）
+1. 狗右鍵「📱 Phone & friends」→「🧪 Test with my phone」/「📱 Link my phone」有沒有出現 6 碼、手機輸入後視窗有沒有顯示「🎉 ...」（失敗的話錯誤訊息是什麼）
 2. 手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入那組碼 → 從手機傳訊息 → 狗有沒有「!」→ 跑到中間 → 汪 → 泡泡；汪的聲音 OK 嗎
 3. 點泡泡 / 點狗會關掉、手機變「Seen」；連傳好幾則會一則一則來（「+N more」）
-4. 狗右鍵「Messages with ○○...」看得到紀錄、回覆後手機收得到；在泡泡上按右鍵會開回覆視窗
+4. 狗右鍵「💌 Messages with ○○...」看得到紀錄、回覆後手機收得到；在泡泡上按右鍵會開回覆視窗
 5. 番茄鐘專心中收到：只有「!」+ Windows 通知，休息時才冒泡泡
 6. 關掉狗 → 手機傳 → 再開狗，訊息有沒有補送
 7. 中文訊息在泡泡上的字（標楷體）好不好看、換行對不對

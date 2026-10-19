@@ -346,28 +346,42 @@ class PetApp(QObject):
     def _cloud_changed(self) -> None:
         if self.msg_win is not None:
             self.msg_win.refresh_title()
-        if self.pair_dlg is not None and self.pair_dlg.isVisible() and not self.pair_dlg.code:
-            self.pair_dlg.show_home()
+        if self.pair_dlg is not None and self.pair_dlg.isVisible() and self.pair_dlg.mode == "settings":
+            self.pair_dlg.open_mode("settings")
 
     def _msg_actions(self, menu: QMenu) -> None:
-        """狗身上和系統匣的選單都有。"""
-        if self.cloud is None:
+        """狗身上和系統匣的選單都有。入口分清楚：連自己的手機 / 用手機測試 / 邀請朋友 / 輸入朋友的碼。"""
+        c = self.cloud
+        if c is None:
             return
-        if self.cloud.paired:
-            menu.addAction(f"Messages with {self.cloud.partner_name}...", self.open_messages)
+        if c.has_partner:
+            who = c.partner_name + (" (test)" if c.test_mode else "")
+            menu.addAction(f"💌 Messages with {who}...", self.open_messages)
             if self.pet.msg_cur is not None:
-                menu.addAction("Reply...", lambda: self.open_messages(reply=True))
-            menu.addAction("Pair...", self.open_pair)
-        else:
-            menu.addAction("Pair with a friend...", self.open_pair)
+                menu.addAction("↩ Reply...", lambda: self.open_messages(reply=True))
+        sub = menu.addMenu("📱 Phone & friends")
+        if c.paired:
+            state = f"Friend: {c.partner_name}" if c.has_partner else "No friend yet"
+            if c.test_mode:
+                state = "Testing with my phone"
+            title = sub.addAction(state)
+            title.setEnabled(False)
+            sub.addSeparator()
+        sub.addAction("📱 Link my phone...", lambda: self.open_pair("link"))
+        if not c.has_partner or c.test_mode:
+            sub.addAction("🧪 Test with my phone...", lambda: self.open_pair("test"))
+            sub.addAction("💌 Invite a friend...", lambda: self.open_pair("invite"))
+        if not c.paired:
+            sub.addAction("🔑 I have a code...", lambda: self.open_pair("join"))
+        if c.paired:
+            sub.addSeparator()
+            sub.addAction("⚙ Pairing...", lambda: self.open_pair("settings"))
 
-    def open_pair(self) -> None:
+    def open_pair(self, mode: str = "link") -> None:
         from .messaging_ui import PairDialog
         if self.pair_dlg is None:
             self.pair_dlg = PairDialog(self.cloud, on_change=self._cloud_changed)
-        else:
-            self.pair_dlg.code = ""
-            self.pair_dlg.show_home()
+        self.pair_dlg.open_mode(mode)
         self.pair_dlg.show()
         self.pair_dlg.raise_()
         self.pair_dlg.activateWindow()
@@ -375,8 +389,8 @@ class PetApp(QObject):
     def open_messages(self, reply: bool = False) -> None:
         if self.cloud is None:
             return
-        if not self.cloud.paired:
-            self.open_pair()
+        if not self.cloud.has_partner:
+            self.open_pair("invite")
             return
         from .messaging_ui import MessagesWindow
         if self.msg_win is None:

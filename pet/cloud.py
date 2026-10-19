@@ -106,7 +106,7 @@ class SSEParser:
 # ====================================================================== 本機存檔
 class CloudState:
     FIELDS = {"uid": "", "refresh": "", "room": "", "slot": "", "my_name": "", "partner_name": "",
-              "seen_ts": 0, "delivered_ts": 0}
+              "seen_ts": 0, "delivered_ts": 0, "test_mode": False}
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -287,8 +287,12 @@ class CloudClient:
     def _room(self, sub: str = "") -> str:
         return f"rooms/{self.state['room']}" + (f"/{sub}" if sub else "")
 
-    def create_pair(self, my_name: str) -> dict:
-        """開新的一組，自己是 a，產生給朋友用的配對碼（位置 b）。"""
+    def ensure_room(self, my_name: str = "") -> str:
+        """還沒有房間就開一個（自己是 a）。「連我的手機」不用先有朋友。"""
+        if self.paired:
+            if my_name and clean_name(my_name) != self.state["my_name"]:
+                self.set_my_name(my_name)
+            return self.state["room"]
         name = clean_name(my_name) or "Me"
         self._ensure_token()
         uid = self.state["uid"]
@@ -299,7 +303,24 @@ class CloudClient:
             "names/a": name,
         })
         self._set_paired(room, "a", name, "")
-        return {"code": self._make_code("b"), "room": room}
+        return room
+
+    def create_pair(self, my_name: str) -> dict:
+        """開新的一組（或用現有的），產生給朋友用的配對碼（對方位置）。"""
+        room = self.ensure_room(my_name)
+        self.state.update(test_mode=False)
+        return {"code": self._make_code(other_slot(self.state["slot"])), "room": room}
+
+    def link_phone(self, my_name: str = "") -> dict:
+        """「📱 Link my phone」：自己位置的碼，手機輸入後就是你自己（朋友收得到你手機傳的）。"""
+        self.ensure_room(my_name)
+        return {"code": self._make_code(self.state["slot"])}
+
+    def test_phone(self, my_name: str = "") -> dict:
+        """「🧪 Test with my phone」：給手機「朋友那一邊」的碼，手機傳的訊息會跑到自己的狗頭上。"""
+        self.ensure_room(my_name)
+        self.state.update(test_mode=True)
+        return {"code": self._make_code(other_slot(self.state["slot"]))}
 
     def make_link_code(self) -> dict:
         """已配對：產生自己位置的碼（給自己的手機連）。"""
@@ -308,10 +329,19 @@ class CloudClient:
         return {"code": self._make_code(self.state["slot"])}
 
     def friend_code(self) -> dict:
-        """已配對：再產生一次給朋友的碼（對方位置），例如碼過期了。"""
+        """已配對：產生給朋友的碼（對方位置）。用來邀請真的朋友時，測試模式就結束。"""
         if not self.paired:
             raise CloudError("Not paired yet")
+        self.state.update(test_mode=False)
         return {"code": self._make_code(other_slot(self.state["slot"]))}
+
+    @property
+    def test_mode(self) -> bool:
+        return bool(self.state["test_mode"])
+
+    @property
+    def has_partner(self) -> bool:
+        return bool(self.paired and self.state["partner_name"])
 
     def _make_code(self, slot: str) -> str:
         for _ in range(8):
@@ -357,7 +387,7 @@ class CloudClient:
                 self._req("DELETE", self._room(f"members/{self.state['uid']}"))
             except Exception:
                 pass                                   # 離線也讓本機解除
-        self.state.update(room="", slot="", partner_name="", seen_ts=0, delivered_ts=0)
+        self.state.update(room="", slot="", partner_name="", seen_ts=0, delivered_ts=0, test_mode=False)
         self._known.clear()
         self.events.put(("unpaired", None))
         self._restart_stream()
@@ -392,6 +422,17 @@ class CloudClient:
         if changed:
             self.events.put(("names", {"me": me, "partner": partner}))
         return {"me": me, "partner": partner}
+
+    def who_joined(self) -> dict:
+        """配對視窗輪詢用：自己這邊有幾支手機、對方叫什麼（也會更新名字）。"""
+        if not self.paired:
+            return {"my_phones": 0, "partner": ""}
+        members = self._req("GET", self._room("members")) or {}
+        me = self.state["slot"]
+        phones = sum(1 for m in members.values() if isinstance(m, dict) and m.get("slot") == me
+                     and m.get("kind") == "phone")
+        names = self.refresh_names()
+        return {"my_phones": phones, "partner": names.get("partner", "")}
 
     def check_member(self) -> bool:
         """自己還在房間裡嗎（例如在別台電腦按了解除配對）。"""
@@ -464,6 +505,11 @@ class CloudClient:
         """串流送來的訊息（初始一整包或單則）→ 只交出對方的、還沒看過、這次還沒交過的。"""
         seen = int(self.state["seen_ts"] or 0)
         newest = 0
+        if not self.state["partner_name"] and isinstance(data, dict) and data:
+            try:
+                self.refresh_names()                    # 朋友剛加入：先拿到名字，泡泡才顯示得出來
+            except Exception:
+                pass
         for m in self._to_list(data):
             if m["id"] in self._known or m["ts"] <= seen:
                 continue
@@ -575,7 +621,7 @@ class CloudClient:
                 continue
             try:
                 self._req("PATCH", self._room(f"status/{self.state['slot']}"), {"pet": SV_TIMESTAMP})
-                if time.monotonic() - last_names > NAMES_POLL_SEC:
+                if not self.state["partner_name"] or time.monotonic() - last_names > NAMES_POLL_SEC:
                     last_names = time.monotonic()
                     self.refresh_names()
             except Exception:
