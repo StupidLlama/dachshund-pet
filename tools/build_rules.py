@@ -69,6 +69,8 @@ NEW_CODE = code("newData.child('code').val()")
 CREATING_HOME = "!root.child('homes').child($home).child('meta').exists()"
 CREATING_ROOM = "!root.child('rooms').child($room).child('meta').exists()"
 NUM_LE_NOW = {".validate": "newData.isNumber() && newData.val() <= now"}
+FIRST_SLOT_IS_HOME = " || ".join(
+    f"(newData.val().beginsWith('{x}') && {slot_home('$room', repr(x))}.val() === $home)" for x in SLOTS)
 
 rules = {
     "rules": {
@@ -136,9 +138,10 @@ rules = {
                 "rooms": {
                     "$room": {
                         ".write": one_line(f"{ME} && {in_home('$home')}"),
+                        # 第一個位置真的是這個家（Firebase 規則沒有 substring → 每個位置用 beginsWith 列出來）
                         ".validate": one_line(f"""
                             newData.isString() && newData.val().matches({SLOTS_RE})
-                            && {slot_home('$room', "newData.val().substring(0, 1)")}.val() === $home"""),
+                            && ({FIRST_SLOT_IS_HOME})"""),
                     }
                 },
                 "todo": {

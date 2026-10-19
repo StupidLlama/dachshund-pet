@@ -63,7 +63,7 @@
         "rooms": {
           "$room": {
             ".write": "auth != null && root.child('homes').child($home).child('members').child(auth.uid).exists()",
-            ".validate": "newData.isString() && newData.val().matches(/^[ab]+$/) && root.child('rooms').child($room).child('slots').child(newData.val().substring(0, 1)).child('home').val() === $home"
+            ".validate": "newData.isString() && newData.val().matches(/^[ab]+$/) && ((newData.val().beginsWith('a') && root.child('rooms').child($room).child('slots').child('a').child('home').val() === $home) || (newData.val().beginsWith('b') && root.child('rooms').child($room).child('slots').child('b').child('home').val() === $home))"
           }
         },
         "todo": {
