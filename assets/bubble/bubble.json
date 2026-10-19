@@ -1,0 +1,7 @@
+{
+  "_about": "Evan's hand-drawn speech bubble. body.png is drawn as a 9-slice; tail.png is laid over the bottom edge.",
+  "slice": 70,
+  "display_scale": 0.36,
+  "tail_offset": [104, 344],
+  "tail_tip": [25, 128]
+}

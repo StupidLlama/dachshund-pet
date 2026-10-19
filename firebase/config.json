@@ -1,0 +1,11 @@
+{
+  "_about": "Firebase web config for the phone PWA and the desktop pet (public client config, not a secret). Project: message-76c6c, Realtime Database in asia-southeast1, Anonymous sign-in enabled.",
+  "apiKey": "AIzaSyC8VwLrSDWAANkpwvZ8W51WRMpRk3HpbtI",
+  "authDomain": "message-76c6c.firebaseapp.com",
+  "databaseURL": "https://message-76c6c-default-rtdb.asia-southeast1.firebasedatabase.app",
+  "projectId": "message-76c6c",
+  "storageBucket": "message-76c6c.firebasestorage.app",
+  "messagingSenderId": "42576923531",
+  "appId": "1:42576923531:web:e2f99bba7436cd8f7efd8e",
+  "measurementId": "G-31CS4HCKF7"
+}
