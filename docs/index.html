@@ -9,35 +9,39 @@
 <link rel="apple-touch-icon" href="app/icons/apple-touch-icon.png">
 <style>
 @font-face { font-family: "EvanHand"; src: url("app/fonts/EvanHand.ttf") format("truetype"); font-display: swap; }
+/* 每一行字都坐在藍線上：所有高度、間距都是 --line 的倍數，字用 top 微調到線上（數值是量出來的） */
 :root {
   --paper: #FFFDF6; --rule: #BFD6F2; --margin: #EBA2A2; --ink: #1E1B16; --muted: #6E675C;
   --tomato: #E2553B; --leaf: #5A9A3C; --dog: #E7C374; --mine: #F7E6B8; --white: #FFFFFF;
   --hand: "EvanHand", "Segoe Print", "Comic Sans MS", system-ui, sans-serif;
   --text: "EvanHand", system-ui, -apple-system, "Segoe UI", sans-serif;   /* 全部用 Evan 的手寫字，沒有的符號才 fallback */
   --line: 32px;
+  --b-h1: 12px; --b-h2: 17px; --b-h3: 4px; --b-p: 5px; --b-tag: 4px; --b-meta: 6px; --b-sum: 4px; --b-h1m: 0px;   /* 字往下挪多少才坐在線上（用 Playwright 量的） */
+  --lines: repeating-linear-gradient(to bottom, transparent 0 calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px) var(--line));
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body {
-  margin: 0; color: var(--ink); font: 20px/var(--line) var(--text);
-  background: var(--paper) repeating-linear-gradient(to bottom, transparent 0 calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px) var(--line));
-}
-main { position: relative; max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 16px 64px 76px; }
+body { margin: 0; color: var(--ink); font: 20px/var(--line) var(--text); background: var(--lines), var(--paper); }
+main { position: relative; max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 16px var(--line) 76px; }
 main::before { content: ""; position: absolute; top: 0; bottom: 0; left: 56px; width: 2px; background: var(--margin); pointer-events: none; }
 h1, h2, h3, .btn, .hand { font-family: var(--hand); font-weight: normal; }
-h1 { font-size: 52px; line-height: 64px; margin: 32px 0 0; }
-h2 { font-size: 34px; line-height: 64px; margin: 32px 0 0; }
-h3 { font-size: 24px; line-height: var(--line); margin: 0; }
-p, li { margin: 0; }
+h1, h2, h3, p, li, summary, footer, .meta, .tag { position: relative; }
+h1 { font-size: 52px; line-height: calc(2 * var(--line)); margin: var(--line) 0 0; top: var(--b-h1, 0px); }
+h2 { font-size: 34px; line-height: calc(2 * var(--line)); margin: var(--line) 0 0; top: var(--b-h2, 0px); }
+h3 { font-size: 24px; line-height: var(--line); margin: 0; top: var(--b-h3, 0px); }
+p, li { margin: 0; top: var(--b-p, 0px); }
 p + p { margin-top: var(--line); }
 a { color: var(--tomato); }
-.tag { font-size: 22px; color: var(--muted); }
+.tag { font-size: 24px; color: var(--muted); top: var(--b-tag, 0px); }
+.meta { font-size: 18px; color: var(--muted); top: var(--b-meta, 0px); }
 
-.hero { display: flex; align-items: center; gap: 20px; padding-top: 32px; }
+.hero { display: flex; align-items: flex-start; gap: 20px; padding-top: var(--line); }
 .hero img { width: 96px; height: 96px; flex: none; }
-.cta { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; margin-top: var(--line); }
-.btn {
-  display: inline-block; font-size: 24px; line-height: 24px; padding: 14px 22px 12px; text-decoration: none;
+.hero h1 { margin: 0; }
+.cta { display: flex; flex-wrap: wrap; gap: var(--line) 16px; align-items: center; margin-top: var(--line); }
+.btn {   /* 高 = 2 行，貼齊藍線 */
+  display: inline-flex; align-items: center; height: calc(2 * var(--line) - 8px); margin: 4px 0;
+  font-size: 24px; line-height: 1; padding: 4px 22px 0; text-decoration: none;
   color: var(--ink); background: var(--dog); border: 2px solid var(--ink); border-radius: 14px;
   box-shadow: -4px 4px 0 rgba(30, 27, 22, .18); transition: transform .1s;
 }
@@ -45,19 +49,18 @@ a { color: var(--tomato); }
 .btn:active { transform: translate(-2px, 2px); box-shadow: -2px 2px 0 rgba(30, 27, 22, .18); }
 .btn.plain { background: var(--white); }
 .btn:focus-visible, a:focus-visible, .stage:focus-visible { outline: 3px solid var(--tomato); outline-offset: 3px; }
-.meta { font-size: 17px; color: var(--muted); }
 
-/* 會走路的狗 */
-.stage { position: relative; height: 192px; margin-top: var(--line); overflow: hidden; cursor: pointer; }
+/* 會走路的狗（腳踩在藍線上） */
+.stage { position: relative; height: calc(6 * var(--line)); margin-top: var(--line); overflow: hidden; cursor: pointer; }
 .dog {
-  position: absolute; bottom: 0; width: 160px; height: 160px; left: -160px;
+  position: absolute; bottom: -57px; width: 160px; height: 160px; left: -160px;
   background: url("img/walk.png") 0 0 / 960px 160px no-repeat;
   animation: walk-frames .7s steps(6) infinite, walk-across 14s linear infinite;
 }
 .dog.happy { background-image: url("img/happy.png"); animation: walk-frames .6s steps(6) 2; left: var(--x); }
 .heart { position: absolute; font-size: 28px; color: var(--tomato); animation: float 1s ease-out forwards; pointer-events: none; }
 .bubble {
-  position: absolute; bottom: 150px; font: 20px/20px var(--hand); background: var(--white); border: 2px solid var(--ink);
+  position: absolute; bottom: 96px; font: 20px/20px var(--hand); background: var(--white); border: 2px solid var(--ink);
   border-radius: 14px; padding: 8px 12px 6px; white-space: nowrap; pointer-events: none;
 }
 @keyframes walk-frames { from { background-position-x: 0; } to { background-position-x: -960px; } }
@@ -68,35 +71,40 @@ a { color: var(--tomato); }
   .heart { animation: none; opacity: 0; }
 }
 
+/* 卡片 / 提示框：框線 + 內距剛好 1 行，裡面也畫藍線，字照樣坐在線上 */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--line) 20px; margin-top: var(--line); }
-.card { background: var(--white); border: 2px solid var(--ink); border-radius: 14px; padding: 15px 18px 17px; box-shadow: -4px 4px 0 rgba(30, 27, 22, .12); }
-.card .ico { font-size: 26px; }
-.card p { font-size: 19px; line-height: 28px; color: #3B362E; }
+.card, .note {
+  border: 2px solid var(--ink); border-radius: 14px; padding: calc(var(--line) / 2 - 2px) 18px;
+  background: var(--lines), var(--white); box-shadow: -4px 4px 0 rgba(30, 27, 22, .12);
+}
+.card { background-position: 0 calc(var(--line) / 2 - 2px), 0 0; }
+.card .ico { font-size: 24px; line-height: var(--line); height: var(--line); }
+.card p { font-size: 20px; color: #3B362E; }
+.note { padding-top: calc(var(--line) / 2 - 2px + var(--b-p)); padding-bottom: calc(var(--line) / 2 - 2px - var(--b-p)); margin-top: var(--line); background: var(--lines), var(--mine); background-position: 0 calc(var(--line) / 2 - 2px), 0 0; }
 
 ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
-ol.steps li { counter-increment: s; position: relative; padding-left: 48px; }
+ol.steps li { counter-increment: s; padding-left: 48px; }
 ol.steps li::before {
-  content: counter(s); position: absolute; left: 0; top: 2px; width: 30px; height: 28px; font: 22px/30px var(--hand);
+  content: counter(s); position: absolute; left: 0; top: calc(4px - var(--b-p, 0px)); width: 30px; height: 26px; font: 20px/28px var(--hand);
   text-align: center; background: var(--tomato); color: var(--white); border: 2px solid var(--ink); border-radius: 50%;
 }
-.note { background: var(--mine); border: 2px solid var(--ink); border-radius: 14px; padding: 14px 18px 16px; margin-top: var(--line); font-size: 19px; line-height: 28px; }
-kbd { font: 17px var(--text); background: var(--white); border: 1.5px solid var(--ink); border-radius: 6px; padding: 1px 6px; }
-code { font-family: var(--text); font-size: 18px; background: rgba(191, 214, 242, .45); padding: 1px 5px; border-radius: 5px; word-break: break-all; }
+kbd { font: 18px var(--text); background: var(--white); border: 1.5px solid var(--ink); border-radius: 6px; padding: 0 6px; }
+code { font-family: var(--text); font-size: 20px; background: rgba(191, 214, 242, .45); padding: 0 5px; border-radius: 5px; word-break: break-all; }
 
-details { border-bottom: 1px dashed var(--muted); }
-summary { font: 22px/var(--line) var(--hand); cursor: pointer; padding: 8px 0; list-style: none; }
-summary::before { content: "+ "; color: var(--tomato); }
-details[open] summary::before { content: "- "; }
-details > div { padding: 0 0 16px 24px; font-size: 19px; line-height: 28px; }
-footer { margin-top: 64px; font-size: 17px; color: var(--muted); }
+details > summary { font: 24px/var(--line) var(--hand); cursor: pointer; list-style: none; top: var(--b-sum, 0px); }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: "+ "; color: var(--tomato); }
+details[open] > summary::before { content: "- "; }
+details > div { position: relative; top: var(--b-p); padding: 0 0 var(--line) 24px; }
+footer { margin-top: calc(2 * var(--line)); font-size: 18px; color: var(--muted); top: var(--b-meta, 0px); }
 
 @media (max-width: 600px) {
   main::before { left: 24px; }
+  main { padding: 0 16px var(--line) 40px; }
+  h1 { font-size: 38px; line-height: var(--line); top: var(--b-h1m, 0px); }
+  .hero { flex-direction: column; gap: 0; }
+  .hero img { width: 64px; height: 64px; }
   .cards { grid-template-columns: 1fr; }
-  main { padding: 0 16px 48px 40px; }
-  h1 { font-size: 38px; line-height: 48px; }
-  .hero { flex-direction: column; align-items: flex-start; gap: 0; }
-  .hero img { width: 72px; height: 72px; }
   .btn { font-size: 21px; }
 }
 </style>
