@@ -409,6 +409,12 @@ Evan 的回饋：電腦沒有快速回覆、手機 / 電腦對話不同步、要
 - **還沒做（等答題卡）**：A/B Google + Email 登入、同帳號自動連手機（Firebase 主控台要 Evan 開 Google / Email 登入、授權網域加 `stupidllama.github.io`；Google 桌面登入要建「桌面應用程式」OAuth 用戶端）、已讀兩邊共用、Load earlier、自訂快捷訊息
 - 要 Evan 確認：狗蓋在泡泡上會不會擋到字；番茄大小 / 距離（改上面兩個常數）；泡泡右鍵選單
 
+## 首頁 + 自動打包 exe（2026-10-20）
+- **網址改了**：首頁 = https://stupidllama.github.io/dachshund-pet/ （`docs/index.html`），手機 App 搬到 **`/app/`**（`docs/app/`，檔案內容沒動，`sw.js` 快取 v0.4.6；`cloud.PWA_URL` 已改）。已「加入主畫面」的手機要用新網址再加一次。首頁會解除舊的根目錄 service worker
+- 首頁（英文、筆記本紙風格、標題用 EvanHand）：狗頭、Download for Windows、Open the phone app、會走路的狗（點牠開心跳 + 愛心 + 泡泡；`docs/img/walk.png`、`happy.png` 是 6 格 200px 的 sprite sheet，從 `assets/` 做的）、功能介紹、安裝步驟（含 SmartScreen「More info → Run anyway」）、手機 App 說明、常見問題。下載鈕用 GitHub API 抓最新 Release 的 zip；還沒有 Release 時改連 Releases 頁
+- **`.github/workflows/release.yml`**：推 `v*` tag → ubuntu 跑 3 個測試 → windows-latest 用 PyInstaller 打包資料夾版（`--windowed`、icon 從 `assets/icon.png` 轉）→ `assets/`、`firebase/config.json` 放在 exe 旁邊 → `DachshundPet-windows.zip` 上傳到 Releases。Actions 頁也能手動「Run workflow」（只產生 artifact）
+- 發新版：`git tag v0.4.4 && git push origin v0.4.4`
+
 ## GitHub（2026-10-19 起）
 - Repo：**https://github.com/StupidLlama/dachshund-pet**（Public，分支 `main`）
 - **Evan 要 Claude 每次改完就幫他 commit + push**（他說 "push it for me from now on"）
@@ -428,7 +434,7 @@ Evan 的回饋：電腦沒有快速回覆、手機 / 電腦對話不同步、要
 2. 讀這份 HANDOFF.md 和程式碼（`pet/pet_window.py` 約 1600 行是主體；v0.3、v0.4 新檔見上面表格）。先問 Evan v0.4.2 實測結果（「v0.4.2 要請 Evan 確認的」9 點）並修好，再進 v0.5
 3. v0.5 規格還沒定：先給 Evan 答題卡（「v0.5 開工前要給 Evan 的答題卡」），照他的習慣，開工前再給大分類工作清單等他說 OK
 4. 寫檔用 device_bash 直接改資料夾裡的檔案（就地改，用 python 讀 → 換字串 → 寫回，不要從工具輸出重打整個檔）；新圖或大檔用 `device_commit_files`
-5. 測試：device 的 VM 和雲端都裝不到 PySide6（PyPI 被擋）、也連不到 Firebase → 跑 `python3 tests/test_v03.py`、`python3 tests/test_v04_pet.py`（假 PySide6）、`python3 tests/test_v04_cloud.py`（本機假 Firebase）；新功能照這些檔加測試。要打真的 Firebase：用 Evan 電腦的**內建瀏覽器**（`mcp__remote-devices__Claude_Browser__*`）開 https://stupidllama.github.io/dachshund-pet/ ，在頁面上用 JS fetch REST（見「真實測試」）；注意 `preview_start` 會重用同一個分頁，要開第二個分頁用 `tabs_create` + `navigate`
+5. 測試：device 的 VM 和雲端都裝不到 PySide6（PyPI 被擋）、也連不到 Firebase → 跑 `python3 tests/test_v03.py`、`python3 tests/test_v04_pet.py`（假 PySide6）、`python3 tests/test_v04_cloud.py`（本機假 Firebase）；新功能照這些檔加測試。要打真的 Firebase：用 Evan 電腦的**內建瀏覽器**（`mcp__remote-devices__Claude_Browser__*`）開 https://stupidllama.github.io/dachshund-pet/app/ ，在頁面上用 JS fetch REST（見「真實測試」）；注意 `preview_start` 會重用同一個分頁，要開第二個分頁用 `tabs_create` + `navigate`
 6. 改完提醒 Evan：先在狗身上右鍵「Quit」，再執行 `cd /d "%USERPROFILE%\Desktop\dachshund-pet" && run.bat`（或雙擊桌面捷徑）重開，不然單一實例只會叫出舊的那隻
 7. Claude 的截圖抓不到透明置頂的狗視窗，畫面一律請 Evan 回報
 8. Evan 的習慣：回覆用繁體中文；要他決定的事給答題卡；指令給可複製的格式；完成小版本（v0.5）後寫完整交接並請他開新對話

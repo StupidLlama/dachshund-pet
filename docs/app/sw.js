@@ -1,5 +1,5 @@
 // 離線時至少打得開畫面（訊息要有網路才收得到）。改了網頁就把版本號 +1，手機才會拿新的。
-const CACHE = "dachshund-v0.4.5";
+const CACHE = "dachshund-v0.4.6";
 const SHELL = ["./", "index.html", "style.css", "app.js", "manifest.webmanifest", "fonts/EvanHand.ttf",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "icons/favicon.png"];
 

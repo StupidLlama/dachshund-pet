@@ -41,7 +41,7 @@ NAMES_POLL_SEC = 300             # 多久重新抓一次朋友的名字（還沒
 ONLINE_WINDOW_MS = 150_000       # 手機端：狗最後心跳在 2.5 分鐘內 = 在線
 HISTORY_N = 100                  # 桌寵看最近幾則（跟手機一樣）
 QUICK = ["Miss you!", "Drink water!", "Good luck today!", "Good night!", "Call me?"]   # 快捷訊息（跟手機 docs/app.js 一樣）
-PWA_URL = "https://stupidllama.github.io/dachshund-pet/"
+PWA_URL = "https://stupidllama.github.io/dachshund-pet/app/"
 SLOTS = "ab"                     # 1 對 1（之後群組：改這裡和 tools/build_rules.py）
 TEST_NAME = "Test phone"
 STATE_VERSION = 2

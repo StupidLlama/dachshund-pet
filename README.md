@@ -75,7 +75,7 @@ py main.py
 
 | 項目 | 做什麼 |
 |---|---|
-| 📱 Link my phone | 手機打開 https://stupidllama.github.io/dachshund-pet/ 輸入碼，手機就連上你的狗（可以「加入主畫面」當 App 用） |
+| 📱 Link my phone | 手機打開 https://stupidllama.github.io/dachshund-pet/app/ 輸入碼，手機就連上你的狗（可以「加入主畫面」當 App 用） |
 | 💌 Invite a friend | 給朋友的碼；朋友在他的狗「🔑 I have a code」或手機 App 輸入，就多一個聊天室 |
 | 🔑 I have a code | 輸入朋友給的碼（隨時都能用，朋友可以很多個） |
 | 🧪 Test chat | 自己跟自己聊：手機打開「My dog」聊天室傳訊息，會跑到自己的狗頭上 |
