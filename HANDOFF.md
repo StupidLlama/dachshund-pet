@@ -1,4 +1,4 @@
-# 交接文件 — 臘腸狗桌寵 v0.4.2 → v0.5
+# 交接文件 — 臘腸狗桌寵 v0.4.3 → v0.5
 
 > 開新對話時說：「照 桌面\dachshund-pet\HANDOFF.md 繼續做 v0.5」。Claude 會連上電腦直接改資料夾，不用傳 zip。
 >
@@ -398,6 +398,16 @@ rooms/{room}/  meta{created,size}, slots/{slot}{home, code?}, names/{slot}, mess
 7. 番茄鐘專心中收到：只有「!」+ Windows 通知，休息時才冒泡泡
 8. 關掉狗 → 手機傳 → 再開狗，訊息有沒有補送
 9. 有朋友的話：「💌 Invite a friend」給碼、朋友用狗或手機加入
+
+## v0.4.3 回饋修正（2026-10-20，雲端做的，Evan 還沒實測）
+Evan 的回饋：電腦沒有快速回覆、手機 / 電腦對話不同步、要 Google / Email 登入；新功能：圖層、番茄。計畫檔 `dachshund-pet-v0.4.3-plan.md`（答題卡還沒填，這版先做不需要決定的部分）。
+- **圖層（Evan 定的）**：狗 > 待辦清單（含輸入框）> 其他（番茄、泡泡、訊息泡泡）。`_raise_all()` 重寫；`Bubble.stack_fn`、`TodoWindow.stack_fn` 出現時呼叫 `_raise_all`（不再自己 raise_）
+- **番茄**：`pomodoro.TOMATO_SCALE = 0.8`（原 0.62，牌子字等比放大）、`pet_window.TOMATO_OFFSET = 0.85`、`TOMATO_GAP = 0.1`。`_pomo_x()`：番茄（含牌子，`TomatoWindow.half_width()`）右緣一律在「清單完全打開」(`TodoWindow.full_width()`) 左邊 − GAP，不管清單開不開；放不下 → 番茄放狗左邊（`pomo_side = -1`，狗面向左）。順便修掉原本只留 0.45S、番茄會超出螢幕的 bug
+- **快速回覆**：`cloud.QUICK`（跟手機同 5 個）。訊息視窗輸入框上一排按鈕（不會清掉正在打的字）；訊息泡泡右鍵 = 選單（5 個快捷 + ✏ Type a reply...），快捷回覆送出後泡泡關掉、狗冒 "Sent!"（`app._quick_reply`）
+- **對話同步**：串流收到自己 slot 的訊息（用手機傳的）→ 事件 `echo`，只進訊息視窗、不冒泡泡、不算未讀；`HISTORY_N` 20 → 100（跟手機一樣）
+- 測試：三個測試檔都加了 v0.4.3 項目，全過
+- **還沒做（等答題卡）**：A/B Google + Email 登入、同帳號自動連手機（Firebase 主控台要 Evan 開 Google / Email 登入、授權網域加 `stupidllama.github.io`；Google 桌面登入要建「桌面應用程式」OAuth 用戶端）、已讀兩邊共用、Load earlier、自訂快捷訊息
+- 要 Evan 確認：狗蓋在泡泡上會不會擋到字；番茄大小 / 距離（改上面兩個常數）；泡泡右鍵選單
 
 ## GitHub（2026-10-19 起）
 - Repo：**https://github.com/StupidLlama/dachshund-pet**（Public，分支 `main`）

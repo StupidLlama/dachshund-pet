@@ -140,7 +140,15 @@ A.send(rid, "Hey Amy")
 m2 = wait_event(B, "message")
 assert m2["text"] == "Hey Amy" and m2["name"] == "Evan"
 time.sleep(0.4)
-assert not [e for e in A.drain() if e[0] == "message"]          # 自己傳的不會回來
+ev = A.drain()
+assert not [e for e in ev if e[0] == "message"]                  # 自己傳的不會冒泡泡
+assert [e[1]["text"] for e in ev if e[0] == "echo"] == ["Hey Amy"]   # 但會進訊息視窗（echo）
+fb.set(f"rooms/{rid}/messages/zzPhone1", {"from": "a", "text": "from my phone", "ts": int(time.time() * 1000), "via": "phone"})
+e = wait_event(A, "echo")
+assert e["text"] == "from my phone" and e["mine"] and e["room"] == rid
+assert not [x for x in A.drain() if x[0] == "message"]
+wait_event(B, "message", pred=lambda v: v["text"] == "from my phone")   # 朋友那邊照常收到
+ok("v0.4.3: my own messages (also from my phone) come back as echo, not as a bubble")
 try:
     A.send(rid, "   ")
     raise AssertionError

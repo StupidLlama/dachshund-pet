@@ -464,4 +464,40 @@ pet2.todo_from_phone("Buy milk")
 assert pet2.bubble.text == "New task: Buy milk"
 ok("dog bubble for a to-do added on the phone")
 
+# ---------------------------------------------------------------- v0.4.3
+# 疊放：其他（番茄、泡泡、訊息泡泡）< 清單 < 輸入框 < 狗
+order = []
+class _W:
+    def __init__(self, n): self.n = n
+    def isVisible(self): return True
+    def raise_(self): order.append(self.n)
+tw3 = _W("list"); tw3.strip = _W("strip")
+p3 = PetWindow(Sprites(), settings)
+p3.tomato_win, p3.bubble, p3.msg_bubble, p3.todo_win = _W("tomato"), _W("bubble"), _W("msg"), tw3
+p3.raise_ = lambda: order.append("dog")
+p3._raise_all()
+assert order[-3:] == ["list", "strip", "dog"] and set(order[:3]) == {"tomato", "bubble", "msg"}, order
+assert pet.bubble.stack_fn == pet._raise_all and pet.msg_bubble.stack_fn == pet._raise_all
+ok("v0.4.3 layers: dog > to-do list > everything else")
+
+# 電腦快捷訊息
+fc3 = FakeCloud(); fc3._rooms = [{"id": "r1", "partner": "Amy", "test": False}]
+mw3 = UI.MessagesWindow(fc3); mw3.show_window()
+assert [b.text() if hasattr(b, "text") else None for b in mw3.quick_btns] and len(mw3.quick_btns) == 5
+mw3.edit.setText("half typed"); mw3.send("Miss you!")
+assert fc3.sent[-1] == ("r1", "Miss you!") and mw3.edit.text() == "half typed" and mw3.items[-1]["text"] == "Miss you!"
+# 自己從手機傳的（echo）：進訊息視窗、不冒泡泡、別的聊天室也不算未讀
+fake.cloud = fc3; fake.msg_win = mw3; mw3._vis = True
+q0 = len(pet.msg_queue)
+fake.cloud.drain = lambda: [("echo", {"room": "r1", "id": "e1", "mine": True, "name": "Me", "text": "from my phone", "ts": 5}),
+                            ("echo", {"room": "r9", "id": "e2", "mine": True, "name": "Me", "text": "other", "ts": 6})]
+PetApp._pump(fake)
+assert mw3.items[-1]["text"] == "from my phone" and len(pet.msg_queue) == q0 and "r9" not in mw3.unread
+# 泡泡右鍵 → 快捷回覆：送出 + 關掉泡泡
+pet._set_state("idle", 50); pet.on_message(msg(40, "hello?", room="r1"))
+run_until(lambda: pet.msg_cur is not None, 20)
+PetApp._quick_reply(fake, "r1", "Good night!")
+assert fc3.sent[-1] == ("r1", "Good night!") and pet.msg_cur is None
+ok("v0.4.3 quick replies on the computer (window + bubble right-click), own phone messages sync to the window")
+
 print("ALL PET MESSAGE TESTS PASSED")

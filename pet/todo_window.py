@@ -124,6 +124,12 @@ class TodoWindow(QWidget):
         self._anim_t0 = 0.0
 
     # ================================================================== 位置
+    stack_fn = None                                      # 輸入框出現時呼叫（PetWindow._raise_all）
+
+    def full_width(self) -> int:
+        """清單完全打開時佔螢幕右邊多寬（陰影 + 紅標籤 + 紙）。"""
+        return self.PAD + self.T + self.W
+
     def attach_screen(self, screen, floor: float) -> None:
         """清單放在這個螢幕的右邊，紙的底部貼齊 floor（狗走路的地面線）。"""
         geo = screen.availableGeometry()
@@ -226,7 +232,7 @@ class TodoWindow(QWidget):
             self.strip.setGeometry(self.x() + int(r.x()), self.y() + int(r.y()), int(r.width()), int(r.height()))
             if not self.strip.isVisible():
                 self.strip.show()
-                self.strip.raise_()
+                (self.stack_fn or self.strip.raise_)()
         elif self.strip.isVisible():
             if self.strip.edit.hasFocus():
                 self.strip.edit.clearFocus()

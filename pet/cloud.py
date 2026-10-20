@@ -39,7 +39,8 @@ CODE_LIFE_SEC = 600              # 配對碼 10 分鐘有效
 HEARTBEAT_SEC = 60               # 多久告訴朋友「我的狗還開著」
 NAMES_POLL_SEC = 300             # 多久重新抓一次朋友的名字（還沒有名字時每次心跳都抓）
 ONLINE_WINDOW_MS = 150_000       # 手機端：狗最後心跳在 2.5 分鐘內 = 在線
-HISTORY_N = 20                   # 桌寵看最近幾則
+HISTORY_N = 100                  # 桌寵看最近幾則（跟手機一樣）
+QUICK = ["Miss you!", "Drink water!", "Good luck today!", "Good night!", "Call me?"]   # 快捷訊息（跟手機 docs/app.js 一樣）
 PWA_URL = "https://stupidllama.github.io/dachshund-pet/"
 SLOTS = "ab"                     # 1 對 1（之後群組：改這裡和 tools/build_rules.py）
 TEST_NAME = "Test phone"
@@ -638,11 +639,14 @@ class CloudClient:
                 pass
         seen = int(r.get("seen_ts") or 0)
         newest = 0
-        for m in self._to_list(rid, data):
+        for m in self._to_list(rid, data, mine_too=True):
             key = f"{rid}/{m['id']}"
             if key in self._known or m["ts"] <= seen:
                 continue
             self._known.add(key)
+            if m["mine"]:                                # 自己（例如用手機）傳的：只更新訊息視窗，不冒泡泡
+                self.events.put(("echo", m))
+                continue
             newest = max(newest, m["ts"])
             self.events.put(("message", m))
         if newest:

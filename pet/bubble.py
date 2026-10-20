@@ -15,6 +15,8 @@ TAIL = 8          # 小三角高度（px，以 160px 狗為準）
 
 
 class Bubble(QWidget):
+    stack_fn = None                                      # 出現時呼叫（PetWindow._raise_all）
+
     def __init__(self, k: float = 1.0, clickable: bool = False):
         flags = (Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.NoDropShadowWindowHint
                  | Qt.WindowDoesNotAcceptFocus)
@@ -67,7 +69,7 @@ class Bubble(QWidget):
         self.move(int(round(x)), int(round(y)))
         if not self.isVisible():
             self.show()
-            self.raise_()
+            (self.stack_fn or self.raise_)()             # 交給狗重排疊放順序（狗 > 清單 > 泡泡）
 
     def paintEvent(self, e) -> None:
         if not self.text:

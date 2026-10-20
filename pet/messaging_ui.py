@@ -13,7 +13,7 @@ from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
                                QPushButton, QTextBrowser, QVBoxLayout, QWidget)
 
-from .cloud import CODE_LIFE_SEC, MAX_TEXT, PWA_URL, CloudClient
+from .cloud import CODE_LIFE_SEC, HISTORY_N, MAX_TEXT, PWA_URL, QUICK, CloudClient
 from .paper import hand_font, msg_font
 
 STYLE = """
@@ -441,7 +441,7 @@ class PairDialog(QDialog):
 
 # ====================================================================== 訊息視窗
 class MessagesWindow(QDialog):
-    """左邊：所有聊天室（朋友）；右邊：最近 20 則 + 回覆。"""
+    """左邊：所有聊天室（朋友）；右邊：最近 100 則 + 快捷訊息 + 回覆。"""
 
     def __init__(self, cloud: CloudClient, parent=None):
         super().__init__(parent, FLAGS)
@@ -481,6 +481,18 @@ class MessagesWindow(QDialog):
         self.view.setFont(msg_font(19))
         self.view.setOpenExternalLinks(False)
         lay.addWidget(self.view, 1)
+        quick = QWidget()                              # 快捷訊息：點了直接送
+        q = QHBoxLayout(quick)
+        q.setContentsMargins(0, 0, 0, 0)
+        q.setSpacing(6)
+        self.quick_btns = []
+        for t in QUICK:
+            b = _button(t, lambda _=False, t=t: self.send(t))
+            b.setFont(hand_font(15))
+            q.addWidget(b)
+            self.quick_btns.append(b)
+        q.addStretch(1)
+        lay.addWidget(quick)
         self.edit = QLineEdit()
         self.edit.setFont(msg_font(19))
         self.edit.setMaxLength(MAX_TEXT)
@@ -527,6 +539,8 @@ class MessagesWindow(QDialog):
             self.sub.setText("Right-click your dog → 📱 Phone & friends → 💌 Invite a friend")
             self.view.setHtml("")
         self.send_btn.setEnabled(bool(rooms))
+        for b in getattr(self, "quick_btns", []):
+            b.setEnabled(bool(rooms))
         if online is not None:
             self.status.setText("" if online else "Offline - messages will send when you're back online")
 
@@ -574,13 +588,15 @@ class MessagesWindow(QDialog):
     def add(self, msg: dict) -> None:
         """串流收到的新訊息（視窗開著時）。別的聊天室的 → 列表上加紅點。"""
         if msg.get("room") and msg["room"] != self.room:
+            if msg.get("mine"):                        # 自己從手機傳的：不算未讀
+                return
             self.unread[msg["room"]] = self.unread.get(msg["room"], 0) + 1
             self.refresh_rooms()
             return
         if any(m["id"] == msg["id"] for m in self.items if m.get("id")):
             return
         self.items.append(msg)
-        self.items = self.items[-40:]
+        self.items = self.items[-HISTORY_N:]
         self.status.setText("")
         self._render()
 
@@ -603,20 +619,21 @@ class MessagesWindow(QDialog):
     def _count(self, text: str) -> None:
         self.counter.setText(f"{len(text)}/{MAX_TEXT}")
 
-    def send(self) -> None:
-        text = self.edit.text().strip()
+    def send(self, quick: str = "") -> None:
+        text = (quick or self.edit.text()).strip()
         if not text or not self.room:
             return
         self.send_btn.setEnabled(False)
         self.status.setText("Sending...")
-        self.cloud.call(self.cloud.send, self.room, text, callback=self._sent)
+        self.cloud.call(self.cloud.send, self.room, text, callback=lambda v, e: self._sent(v, e, bool(quick)))
 
-    def _sent(self, value, err) -> None:
+    def _sent(self, value, err, quick: bool = False) -> None:
         self.send_btn.setEnabled(True)
         if err:
             self.status.setText(err)
             return
         self.status.setText("Sent!")
-        self.edit.clear()
+        if not quick:                                  # 快捷訊息不清掉正在打的字
+            self.edit.clear()
         self.add({"room": value.get("room", self.room), "id": value.get("id", ""), "mine": True, "name": "Me",
                   "text": value["text"], "ts": int(_now() * 1000)})

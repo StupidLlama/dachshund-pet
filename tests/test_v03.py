@@ -204,6 +204,37 @@ print("pomodoro ok; after:", pet.state)
 # 停止
 pet.start_pomodoro(); run_until(lambda: pet.state == "pomo_sit", 10)
 pet.stop_pomodoro(); assert not tom.isVisible() and pet.bubble.text == "OK, stopped." and pet.state == "idle"
+# v0.4.3：番茄變大（0.8S）、離狗 0.85S，而且永遠不會被「打開的清單」蓋住（狗在哪都一樣、窄螢幕放左邊）
+from pet.pomodoro import TOMATO_SCALE
+from pet.pet_window import TOMATO_OFFSET
+assert tom.T == round(TOMATO_SCALE * 160)
+geo = pet._screen_here().availableGeometry()
+list_left = geo.x() + geo.width() - tw.full_width()
+def tomato_span():
+    cx = tom.x() + tom.width() / 2
+    return cx - tom.half_width(), cx + tom.half_width()
+gr = pet._ground_rect(pet._screen_here())
+for start_x in (gr.left(), (gr.left() + gr.right()) / 2, list_left - 40, gr.right()):
+    for list_open in (False, True):
+        if tw.is_open != list_open:
+            tw.set_open(list_open) if hasattr(tw, "set_open") else None
+        pet._set_state("idle", 1.0); pet.gx = start_x
+        pet.start_pomodoro(); run_until(lambda: pet.state == "pomo_sit", 20)
+        l, r = tomato_span()
+        assert pet.pomo_side == 1 and r <= list_left - 0.1 * 160 + 0.5, (start_x, l, r, list_left)
+        assert abs((tom.x() + tom.width() / 2) - pet.gx - TOMATO_OFFSET * 160) < 1.5
+        pet.stop_pomodoro(quiet=True)
+# 窄螢幕（清單幾乎佔滿）：番茄放狗左邊，也不被清單蓋住
+saved_W = tw.W
+tw.W = int(geo.width() - tw.PAD - tw.T - 1.6 * 160)
+list_left = geo.x() + geo.width() - tw.full_width()
+pet._set_state("idle", 1.0); pet.gx = gr.right()
+pet.start_pomodoro(); run_until(lambda: pet.state == "pomo_sit", 20)
+l, r = tomato_span()
+assert pet.pomo_side == -1 and r <= list_left and l >= geo.x() - 1 and pet.facing_left, (l, r, list_left)
+pet.stop_pomodoro(quiet=True); tw.W = saved_W
+pet._set_state("idle", 1.0)
+print("v0.4.3 tomato placement ok")
 # 搬清單時不能開始番茄鐘
 pet.toggle_list(); assert pet.busy
 pet.start_pomodoro(); assert not pet.pomo.active and pet.pomo_pending is None and pet.bubble.text == "One sec!"

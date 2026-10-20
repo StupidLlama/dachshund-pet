@@ -93,6 +93,8 @@ HANDS_OFF |= LIST_STATES
 
 # ---- v0.4 收到訊息
 ALERT_FOCUS_SEC = 3.0       # 番茄鐘專心中：「!」顯示幾秒
+TOMATO_OFFSET = 0.85        # 番茄中心離狗多遠（×S，原本 0.62）
+TOMATO_GAP = 0.1            # 番茄和「打開的清單」之間至少留多少（×S）
 MSG_RUN_SPEED = 240.0       # 跑去螢幕中間的速度（px/s，以 160px 狗為準）
 ALERT_RED = QColor("#E2553B")
 ALERT_SIZE = 0.36           # 「!」字的大小（× S）
@@ -219,12 +221,14 @@ class PetWindow(QWidget):
         self.pomo = Pomodoro()
         self.pomo_pending: tuple[float, float] | None = None   # 走去番茄旁邊的路上（還沒開始計時）
         self.pomo_spot: tuple[float, float] = (0.0, 0.0)
+        self.pomo_side = 1                                  # 番茄在狗的右邊 (+1) / 左邊 (-1)
         self.tomato_win = None
         self.ding_sound = None
         self.tomato_hide_at = 0.0
 
         # v0.4 訊息
         self.msg_bubble = MsgBubble(self.k)
+        self.bubble.stack_fn = self.msg_bubble.stack_fn = self._raise_all
         self.msg_bubble.clicked.connect(self.dismiss_message)
         self.msg_queue: deque = deque()                     # 還沒顯示的訊息
         self.msg_cur: dict | None = None                    # 正在顯示的訊息
@@ -962,6 +966,7 @@ class PetWindow(QWidget):
     # ================================================================== v0.3 待辦清單（狗搬清單）
     def attach_todo(self, win) -> None:
         self.todo_win = win
+        win.stack_fn = self._raise_all
         win.tabClicked.connect(self.toggle_list)
         win.toggled.connect(self.on_todo_toggled)
         win.typingDone.connect(self._raise_all)
@@ -973,16 +978,15 @@ class PetWindow(QWidget):
         self._raise_all()
 
     def _raise_all(self) -> None:
-        """疊放順序：清單 < 輸入框 < 狗（嘴和鼻子蓋住紙邊）< 番茄 < 泡泡 < 訊息泡泡。"""
-        if self.todo_win is not None and self.todo_win.strip.isVisible():
-            self.todo_win.strip.raise_()
+        """疊放順序（Evan 定的，由下到上）：其他（番茄、泡泡、訊息泡泡）< 待辦清單 < 輸入框 < 狗。"""
+        for w in (self.tomato_win, self.bubble, self.msg_bubble):
+            if w is not None and w.isVisible():
+                w.raise_()
+        if self.todo_win is not None and self.todo_win.isVisible():
+            self.todo_win.raise_()
+            if self.todo_win.strip.isVisible():
+                self.todo_win.strip.raise_()
         self.raise_()
-        if self.tomato_win is not None and self.tomato_win.isVisible():
-            self.tomato_win.raise_()
-        if self.bubble.isVisible():
-            self.bubble.raise_()
-        if self.msg_bubble.isVisible():
-            self.msg_bubble.raise_()
 
     def toggle_list(self) -> None:
         """點紅標籤：收著 → 拉出來；開著 → 推回去。"""
@@ -1148,14 +1152,31 @@ class PetWindow(QWidget):
         focus = float(self.settings.get("focus_min")) * 60
         brk = float(self.settings.get("break_min")) * 60
         self.pomo_pending = (focus, brk)
-        rect = self._ground_rect(self._screen_here())
-        x = min(max(self.gx, rect.left()), rect.right() - 0.45 * self.S)   # 右邊要放得下番茄
+        screen = self._screen_here()
+        rect = self._ground_rect(screen)
+        x, self.pomo_side = self._pomo_x(screen, rect)
         y = min(max(self.gy, rect.top()), rect.bottom())
         self.pomo_spot = (x, y)
         self.target = None
         self.zoom_targets = []
         self.lift = self.lift_v = 0.0
         self._go_pomo_spot()
+
+    def _pomo_x(self, screen, rect) -> tuple[float, int]:
+        """狗坐哪裡、番茄放哪邊（+1 右 / -1 左）。番茄（含牌子）一律放在「清單完全打開時」的左邊，
+        不管清單現在開不開（番茄鐘中清單也可能自己滑出來），所以永遠不會被清單蓋住。"""
+        off = TOMATO_OFFSET * self.S
+        half = self.tomato_win.half_width() if self.tomato_win is not None else 0.4 * self.S
+        limit = float(rect.right())
+        if self.todo_win is not None:
+            geo = screen.availableGeometry()
+            limit = min(limit, geo.x() + geo.width() - self.todo_win.full_width() - TOMATO_GAP * self.S - half - off)
+        x = min(max(self.gx, rect.left()), limit)
+        if x >= rect.left():
+            return x, 1
+        # 螢幕太窄：番茄放狗左邊
+        lo = rect.left() + off + half
+        return min(max(self.gx, lo), max(lo, limit + 2 * off)), -1
 
     def stop_pomodoro(self, quiet: bool = False) -> None:
         was = self.pomo.active or self.pomo_pending
@@ -1186,7 +1207,7 @@ class PetWindow(QWidget):
     def _arrive_pomo(self) -> None:
         """坐在番茄左邊，面向右。第一次到 = 擺好番茄、開始計時。"""
         self.gx, self.gy = self.pomo_spot
-        self._set_direction("right")
+        self._set_direction("right" if self.pomo_side > 0 else "left")
         if self.pomo_pending:
             focus, brk = self.pomo_pending
             self.pomo_pending = None
@@ -1194,7 +1215,7 @@ class PetWindow(QWidget):
             self.tomato_hide_at = 0.0
             x, y = self.pomo_spot
             self.tomato_win.set_progress(1.0, fmt_mmss(focus), False)
-            self.tomato_win.place(x + 0.62 * self.S, y)
+            self.tomato_win.place(x + self.pomo_side * TOMATO_OFFSET * self.S, y)
             self.tomato_win.show()
             self._raise_all()
             self.say("Wind it up!", life=1.0)
@@ -1347,7 +1368,7 @@ class PetWindow(QWidget):
         self.bubble.clear()
         self.msg_bubble.show_msg(m["name"], m["text"], len(self.msg_queue))
         self._place_bubble()
-        self.msg_bubble.raise_()
+        self._raise_all()
         self._touch()
         if not (self.pomo.active or self.pomo_pending):
             self.target = None

@@ -4,15 +4,16 @@ v0.4：雙人訊息（cloud.py 連 Firebase；配對 / 訊息視窗在 messaging
 v0.4.2：很多朋友（每人一個聊天室）、待辦清單和設定跟手機同步。"""
 from __future__ import annotations
 
+import time
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QPoint, QTimer
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QActionGroup, QFont, QIcon, QPainter, QPixmap, QRegion
+from PySide6.QtGui import QAction, QActionGroup, QCursor, QFont, QIcon, QPainter, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QInputDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import convenience as conv
-from .cloud import CloudClient, load_config
+from .cloud import QUICK, CloudClient, load_config
 from .fonts import load_custom_font
 from .pet_window import PetWindow
 from .pomodoro import Ding, TomatoWindow
@@ -330,8 +331,9 @@ class PetApp(QObject):
         """把網路執行緒的結果拿到主執行緒處理（Qt 的東西只能在主執行緒碰）。"""
         for kind, value in self.cloud.drain():
             try:
-                if kind == "message":
-                    self.pet.on_message(value)
+                if kind in ("message", "echo"):             # echo = 自己從手機傳的，只進訊息視窗
+                    if kind == "message":
+                        self.pet.on_message(value)
                     if self.msg_win is not None and self.msg_win.isVisible():
                         self.msg_win.add(value)
                 elif kind == "result":
@@ -451,8 +453,31 @@ class PetApp(QObject):
         self.pair_dlg.activateWindow()
 
     def _reply_current(self) -> None:
+        """訊息泡泡按右鍵：快捷訊息直接回（回完泡泡關掉），或開視窗打字。"""
         room = (self.pet.msg_cur or {}).get("room", "")
-        self.open_messages(reply=True, room=room)
+        menu = QMenu()
+        self._style_menu(menu)
+        for t in QUICK:
+            menu.addAction(t, lambda t=t: self._quick_reply(room, t))
+        menu.addSeparator()
+        menu.addAction("✏ Type a reply...", lambda: self.open_messages(reply=True, room=room))
+        menu.exec(QCursor.pos())
+
+    def _quick_reply(self, room: str, text: str) -> None:
+        if self.cloud is None or not room:
+            return
+
+        def done(value, err):
+            if err:
+                self.pet.say("Oops! Not sent", life=1.4)
+                return
+            if self.msg_win is not None and self.msg_win.isVisible():
+                self.msg_win.add({"room": room, "id": value.get("id", ""), "mine": True, "name": "Me",
+                                  "text": value["text"], "ts": int(time.time() * 1000)})
+        self.cloud.call(self.cloud.send, room, text, callback=done)
+        if (self.pet.msg_cur or {}).get("room") == room:
+            self.pet.dismiss_message()
+        self.pet.say("Sent!", life=1.0)
 
     def open_messages(self, reply: bool = False, room: str = "") -> None:
         if self.cloud is None:

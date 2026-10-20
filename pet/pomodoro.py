@@ -13,6 +13,7 @@ import time
 import wave
 from pathlib import Path
 
+TOMATO_SCALE = 0.8        # 番茄大小（×狗 S，v0.3 是 0.62）
 WOBBLE_DEG = 9.0          # 時間到：番茄左右搖晃 ±9°
 WOBBLE_HALF = 0.14        # 搖一邊 0.14 秒
 WOBBLE_TIMES = 8          # 來回 8 次（半程）
@@ -144,7 +145,7 @@ def _tomato_window_class():
             self.setAttribute(Qt.WA_ShowWithoutActivating)
             self.setAttribute(Qt.WA_TransparentForMouseEvents)
             self.k = S / 160
-            self.T = int(round(0.62 * S))                    # 番茄大小
+            self.T = int(round(TOMATO_SCALE * S))            # 番茄大小（原本 0.62）
             folder = Path(assets_dir) / "pomodoro"
             self.body = self._load(folder / "tomato.png")
             self.leaf = self._load(folder / "leaf.png")
@@ -152,12 +153,17 @@ def _tomato_window_class():
             self.text = "00:00"
             self.is_break = False
             self.wobble_t = -1.0                             # >= 0：正在搖
-            self.f_big = hand_font(24 * self.k)
-            self.f_tiny = hand_font(24 * self.k * 0.55)
+            self.f_big = hand_font(24 * self.k * TOMATO_SCALE / 0.62)
+            self.f_tiny = hand_font(24 * self.k * TOMATO_SCALE / 0.62 * 0.55)
             fm = QFontMetricsF(self.f_big)
             self.label_h = fm.ascent() + fm.descent() + 4
             w = max(self.T * 1.5, fm.horizontalAdvance("00:00 ") + QFontMetricsF(self.f_tiny).horizontalAdvance("break") + 40)
             self.resize(int(w), int(self.label_h + 12 + self.T * 1.15))
+            label_w = fm.horizontalAdvance("00:00 ") + QFontMetricsF(self.f_tiny).horizontalAdvance("break") + 20 * self.k
+            self._half = max(0.55 * self.T, label_w / 2)      # 畫出來的東西（番茄 + 搖晃、牌子）半寬
+
+        def half_width(self) -> float:
+            return self._half
 
         def _load(self, path: Path):
             px = QPixmap(str(path))
