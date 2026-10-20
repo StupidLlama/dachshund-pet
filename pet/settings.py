@@ -22,6 +22,7 @@ DEFAULTS = {
     "extras": {},              # Evan 沒勾的互動，預設關閉，右鍵「更多互動」可打開（見 EXTRAS）
     "mood": 70,                # 心情 0~100（v0.2）
     "affection": 30,           # 親密度 0~100（v0.2）
+    "skip_version": "",        # 自動更新：使用者按「Skip this version」的版本
 }
 
 

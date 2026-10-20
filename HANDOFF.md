@@ -415,6 +415,13 @@ Evan 的回饋：電腦沒有快速回覆、手機 / 電腦對話不同步、要
 - **`.github/workflows/release.yml`**：推 `v*` tag → ubuntu 跑 3 個測試 → windows-latest 用 PyInstaller 打包資料夾版（`--windowed`、icon 從 `assets/icon.png` 轉）→ `assets/`、`firebase/config.json` 放在 exe 旁邊 → `DachshundPet-windows.zip` 上傳到 Releases。Actions 頁也能手動「Run workflow」（只產生 artifact）
 - 發新版：`git tag v0.4.4 && git push origin v0.4.4`
 
+## 自動更新 + Enter 修正（2026-10-20，v0.4.5）
+- **`pet/updater.py`**：只有打包的 exe 會檢查（`can_update()`；用 py 跑原始碼不檢查）。開狗 6 秒後在背景查 `releases/latest` → 比 `pet/version.py` 新、且不是 `skip_version` → 跳「Update available」視窗（版本、現在版本、更新紀錄 = Release 內文 Markdown）：Skip this version / Later / Update now。Update now：背景下載 zip（進度條）→ 解壓到暫存 → 寫 `update.bat`（等舊 PID 結束 → robocopy 蓋過 exe 資料夾 → 開新 exe → 刪暫存）→ 狗 "See you in a sec!" 後關掉。右鍵（狗、系統匣）多「Check for updates...」（手動，已是最新會冒 "Up to date! (v...)"）
+- **更新紀錄**：Actions 會把「上一個 tag 到這次」的 commit 訊息寫成 Release 內文（`notes.md`）。想寫得好看：發版後到 GitHub Release 頁按編輯改內文就好（使用者看到的就是那段）
+- Actions 打包時依 tag 改寫 `pet/version.py`；多跑 `tests/test_updater.py`
+- ⚠ v0.4.4 的 exe 還沒有更新功能，要手動下載一次 v0.4.5，之後就會自動問
+- **Enter 修正**：訊息視窗裡的快捷按鈕和 Send 都 `setAutoDefault(False)`，Enter 只送輸入框（之前 Enter 會順便按到第一個快捷訊息 "Miss you!"）
+
 ## GitHub（2026-10-19 起）
 - Repo：**https://github.com/StupidLlama/dachshund-pet**（Public，分支 `main`）
 - **Evan 要 Claude 每次改完就幫他 commit + push**（他說 "push it for me from now on"）

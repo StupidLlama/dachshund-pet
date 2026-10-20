@@ -512,6 +512,10 @@ class MessagesWindow(QDialog):
         self.status = _label("", 15, "status", True)
         lay.addWidget(self.status)
         outer.addWidget(right, 1)
+        # Enter 只送輸入框的字：按鈕都不能當「預設按鈕」（不然 Enter 會順便按到第一個快捷訊息）
+        for b in (*self.quick_btns, self.send_btn):
+            b.setAutoDefault(False)
+            b.setDefault(False)
         self.refresh_rooms()
 
     # ---------------------------------------------------------------- 聊天室列表

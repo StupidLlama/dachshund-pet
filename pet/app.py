@@ -4,6 +4,7 @@ v0.4：雙人訊息（cloud.py 連 Firebase；配對 / 訊息視窗在 messaging
 v0.4.2：很多朋友（每人一個聊天室）、待辦清單和設定跟手機同步。"""
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime
 
@@ -13,6 +14,7 @@ from PySide6.QtGui import QAction, QActionGroup, QCursor, QFont, QIcon, QPainter
 from PySide6.QtWidgets import QApplication, QInputDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import convenience as conv
+from . import updater
 from .cloud import QUICK, CloudClient, load_config
 from .fonts import load_custom_font
 from .pet_window import PetWindow
@@ -68,6 +70,7 @@ class PetApp(QObject):
         self.wake_timer.timeout.connect(self._check_wake)
         self.wake_timer.start(WAKE_CHECK_MS)
         QTimer.singleShot(3000, self._check_wake)
+        QTimer.singleShot(6000, self._check_update)       # 開狗時看 GitHub 有沒有新版
 
         # 方便功能：再開一次 = 叫牠過來；全域快捷鍵
         self.instance = conv.InstanceServer(self)
@@ -153,6 +156,8 @@ class PetApp(QObject):
             auto.setChecked(conv.autostart_enabled())
             auto.toggled.connect(self._toggle_autostart)
             menu.addAction(auto)
+        if updater.can_update():
+            menu.addAction("Check for updates...", lambda: self._check_update(manual=True))
         menu.addSeparator()
         menu.addAction("Quit", self.quit)
 
@@ -451,6 +456,57 @@ class PetApp(QObject):
         self.pair_dlg.show()
         self.pair_dlg.raise_()
         self.pair_dlg.activateWindow()
+
+    # ---------------------------------------------------------------- 自動更新
+    def _check_update(self, manual: bool = False) -> None:
+        if not updater.can_update():
+            return
+        skip = "" if manual else self.settings.get("skip_version")
+        job = updater.Background(updater.check, skip)
+        self._poll(job, lambda: self._update_found(job, manual))
+
+    def _poll(self, job, then) -> None:
+        """每 0.2 秒看背景工作做完沒（不卡住狗）。"""
+        def tick():
+            if job.done:
+                timer.stop()
+                then()
+        timer = QTimer(self)
+        timer.timeout.connect(tick)
+        timer.start(200)
+        return timer
+
+    def _update_found(self, job, manual: bool) -> None:
+        info = job.result
+        if not info:
+            if manual:
+                self.pet.say("Can't reach GitHub" if job.error else f"Up to date! (v{updater.__version__})", life=2.0)
+            return
+
+        def skip():
+            self.settings.set("skip_version", info["tag"])
+
+        self._update_dlg = updater.make_dialog(info, lambda dlg: self._do_update(info, dlg), skip, lambda: None)
+        self._update_dlg.show()
+        self._update_dlg.raise_()
+
+    def _do_update(self, info: dict, dlg) -> None:
+        job = updater.Background(updater.download, info, progress=None)
+        timer = self._poll(job, lambda: self._downloaded(job, dlg))
+        timer.timeout.connect(lambda: dlg.set_progress(*job.progress))
+
+    def _downloaded(self, job, dlg) -> None:
+        if job.error or not job.result:
+            dlg.failed(str(job.error or "unknown error")[:80])
+            return
+        try:
+            bat = updater.write_swap_script(job.result, updater.app_dir(), os.getpid())
+            updater.run_swap(bat)
+        except Exception as e:
+            dlg.failed(str(e)[:80])
+            return
+        self.pet.say("See you in a sec!", life=1.5)
+        QTimer.singleShot(800, self.quit)            # 狗關掉後，update.bat 換檔再開新的
 
     def _reply_current(self) -> None:
         """訊息泡泡按右鍵：快捷訊息直接回（回完泡泡關掉），或開視窗打字。"""

@@ -483,6 +483,8 @@ ok("v0.4.3 layers: dog > to-do list > everything else")
 # 電腦快捷訊息
 fc3 = FakeCloud(); fc3._rooms = [{"id": "r1", "partner": "Amy", "test": False}]
 mw3 = UI.MessagesWindow(fc3); mw3.show_window()
+for _b in (*mw3.quick_btns, mw3.send_btn):            # Enter 不能順便按到快捷訊息
+    _b.setAutoDefault.assert_called_with(False)
 assert [b.text() if hasattr(b, "text") else None for b in mw3.quick_btns] and len(mw3.quick_btns) == 5
 mw3.edit.setText("half typed"); mw3.send("Miss you!")
 assert fc3.sent[-1] == ("r1", "Miss you!") and mw3.edit.text() == "half typed" and mw3.items[-1]["text"] == "Miss you!"
