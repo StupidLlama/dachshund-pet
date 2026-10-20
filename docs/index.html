@@ -13,13 +13,13 @@
   --paper: #FFFDF6; --rule: #BFD6F2; --margin: #EBA2A2; --ink: #1E1B16; --muted: #6E675C;
   --tomato: #E2553B; --leaf: #5A9A3C; --dog: #E7C374; --mine: #F7E6B8; --white: #FFFFFF;
   --hand: "EvanHand", "Segoe Print", "Comic Sans MS", system-ui, sans-serif;
-  --text: system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei UI", "PingFang TC", sans-serif;
+  --text: "EvanHand", system-ui, -apple-system, "Segoe UI", sans-serif;   /* 全部用 Evan 的手寫字，沒有的符號才 fallback */
   --line: 32px;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0; color: var(--ink); font: 17px/var(--line) var(--text);
+  margin: 0; color: var(--ink); font: 20px/var(--line) var(--text);
   background: var(--paper) repeating-linear-gradient(to bottom, transparent 0 calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px) var(--line));
 }
 main { position: relative; max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 16px 64px 76px; }
@@ -45,7 +45,7 @@ a { color: var(--tomato); }
 .btn:active { transform: translate(-2px, 2px); box-shadow: -2px 2px 0 rgba(30, 27, 22, .18); }
 .btn.plain { background: var(--white); }
 .btn:focus-visible, a:focus-visible, .stage:focus-visible { outline: 3px solid var(--tomato); outline-offset: 3px; }
-.meta { font-size: 15px; color: var(--muted); }
+.meta { font-size: 17px; color: var(--muted); }
 
 /* 會走路的狗 */
 .stage { position: relative; height: 192px; margin-top: var(--line); overflow: hidden; cursor: pointer; }
@@ -71,7 +71,7 @@ a { color: var(--tomato); }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--line) 20px; margin-top: var(--line); }
 .card { background: var(--white); border: 2px solid var(--ink); border-radius: 14px; padding: 15px 18px 17px; box-shadow: -4px 4px 0 rgba(30, 27, 22, .12); }
 .card .ico { font-size: 26px; }
-.card p { font-size: 16px; line-height: 26px; color: #3B362E; }
+.card p { font-size: 19px; line-height: 28px; color: #3B362E; }
 
 ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
 ol.steps li { counter-increment: s; position: relative; padding-left: 48px; }
@@ -79,16 +79,16 @@ ol.steps li::before {
   content: counter(s); position: absolute; left: 0; top: 2px; width: 30px; height: 28px; font: 22px/30px var(--hand);
   text-align: center; background: var(--tomato); color: var(--white); border: 2px solid var(--ink); border-radius: 50%;
 }
-.note { background: var(--mine); border: 2px solid var(--ink); border-radius: 14px; padding: 14px 18px 16px; margin-top: var(--line); font-size: 16px; line-height: 26px; }
-kbd { font: 14px var(--text); background: var(--white); border: 1.5px solid var(--ink); border-radius: 6px; padding: 1px 6px; }
-code { font-size: 15px; background: rgba(191, 214, 242, .45); padding: 1px 5px; border-radius: 5px; word-break: break-all; }
+.note { background: var(--mine); border: 2px solid var(--ink); border-radius: 14px; padding: 14px 18px 16px; margin-top: var(--line); font-size: 19px; line-height: 28px; }
+kbd { font: 17px var(--text); background: var(--white); border: 1.5px solid var(--ink); border-radius: 6px; padding: 1px 6px; }
+code { font-family: var(--text); font-size: 18px; background: rgba(191, 214, 242, .45); padding: 1px 5px; border-radius: 5px; word-break: break-all; }
 
 details { border-bottom: 1px dashed var(--muted); }
 summary { font: 22px/var(--line) var(--hand); cursor: pointer; padding: 8px 0; list-style: none; }
 summary::before { content: "+ "; color: var(--tomato); }
 details[open] summary::before { content: "- "; }
-details > div { padding: 0 0 16px 24px; font-size: 16px; line-height: 26px; }
-footer { margin-top: 64px; font-size: 14px; color: var(--muted); }
+details > div { padding: 0 0 16px 24px; font-size: 19px; line-height: 28px; }
+footer { margin-top: 64px; font-size: 17px; color: var(--muted); }
 
 @media (max-width: 600px) {
   main::before { left: 24px; }
