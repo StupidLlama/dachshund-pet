@@ -23,6 +23,9 @@ DEFAULTS = {
     "mood": 70,                # 心情 0~100（v0.2）
     "affection": 30,           # 親密度 0~100（v0.2）
     "skip_version": "",        # 自動更新：使用者按「Skip this version」的版本
+    "poops": [],               # v0.5：桌面上還沒掃的大便 [[x, y, 稀有度], ...]（最多 10 坨）
+    "poop_in": None,           # v0.5：下次大便還要幾秒（None = 重新抽 30~60 分鐘）
+    "poop_log": {},            # v0.5：{"made": {稀有度: 次數}, "swept": {...}}，之後做收集用
 }
 
 

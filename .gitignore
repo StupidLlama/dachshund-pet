@@ -7,3 +7,4 @@ dist/
 .venv/
 assets_original/
 .push.bundle
+firebase/oauth_desktop.json

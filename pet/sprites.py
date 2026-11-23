@@ -13,11 +13,11 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QTransform
 
-from .dog_model import ANIMS, DRAWN_DIRS, HELD_GRAB, MIRROR_OF, OUTLINE, PALETTE, build
+from .dog_model import ANIMS, DRAWN_DIRS, HELD_GRAB, MIRROR_OF, OPTIONAL, OUTLINE, PALETTE, build
 from .shadow import ALPHA_ON, GRID, mirror, shadow_from_masks
 
 BASE_SIZE = 160
-LYING = {"belly", "sleep"}   # 躺在地上的動作，影子貼身體
+LYING = {"belly", "sleep", "snore"}   # 躺在地上的動作，影子貼身體
 HELD_FIRST_SEC = 0.25      # 剛被拎起來時，第 1 格停多久
 
 
@@ -72,7 +72,19 @@ class SpriteLibrary:
         self.sketched: list[str] = []          # 哪些動作還在用草圖
         self.shadows: dict[tuple[str, str], tuple | None] = {}   # 從圖片算出來的影子
         manual = self._load_shadows(assets_dir / "shadows.json")   # Evan 用 Shadow Picker 調的（有就優先用）
+        self.optional: set[str] = set()        # v0.5 新動畫裡，Evan 已經畫好的（has() 用）
         for name, (n, _fps, directional) in ANIMS.items():
+            if name in OPTIONAL:
+                # 新動畫：有圖才載入；沒有圖不用草圖頂替，pet_window 會照舊用原本的動作湊
+                frames = self._load_pngs(assets_dir / name)
+                if not frames:
+                    continue
+                self.optional.add(name)
+                self.frames[(name, "front")] = frames
+                self.frames[(name, "front_flip")] = [_mirror(px) for px in frames]
+                self.shadows[(name, "front")] = manual.get(name) or self._shadow(frames, lying=name in LYING)
+                self.shadows[(name, "front_flip")] = mirror(self.shadows[(name, "front")])
+                continue
             if directional:
                 for d in DRAWN_DIRS:
                     self.frames[(name, d)] = self._load_or_sketch(assets_dir / name / d, name, d, n)
@@ -91,6 +103,15 @@ class SpriteLibrary:
             self.held_grabs = [HELD_GRAB]
         else:
             self.held_grabs = self._load_grabs(assets_dir / "held" / "grab.json")
+        # 特效圖（不是狗本身）：assets/effects/dizzy_01.png ...（頭暈的星星，畫在頭上）
+        self.effects: dict[str, list[QPixmap]] = {}
+        k = size / 320
+        for f in sorted((assets_dir / "effects").glob("*_[0-9][0-9].png")) if (assets_dir / "effects").is_dir() else []:
+            px = QPixmap(str(f))
+            if not px.isNull():
+                px = px.scaled(max(1, round(px.width() * k)), max(1, round(px.height() * k)),
+                               Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+                self.effects.setdefault(f.stem.rsplit("_", 1)[0], []).append(px)
 
     @staticmethod
     def _load_shadows(path: Path) -> dict[str, tuple]:
@@ -135,15 +156,23 @@ class SpriteLibrary:
             return self.shadows.get((name, direction))
         return self.shadows.get((name, "front_flip" if flip else "front"))
 
-    def _load_or_sketch(self, folder: Path, name: str, direction: str, n: int) -> list[QPixmap]:
+    def has(self, name: str) -> bool:
+        """v0.5 新動畫（dog_model.OPTIONAL）有沒有正式圖。"""
+        return name in self.optional
+
+    def _load_pngs(self, folder: Path) -> list[QPixmap]:
+        loaded = []
         if folder.is_dir():
-            loaded = []
             for f in sorted(folder.glob("*.png")):
                 px = QPixmap(str(f))
                 if not px.isNull():
                     loaded.append(self._fit(px))
-            if loaded:
-                return loaded
+        return loaded
+
+    def _load_or_sketch(self, folder: Path, name: str, direction: str, n: int) -> list[QPixmap]:
+        loaded = self._load_pngs(folder)
+        if loaded:
+            return loaded
         self.sketched.append(f"{name}/{direction}" if ANIMS[name][2] else name)
         return [render_sketch(name, direction, i / n, self.size) for i in range(n)]
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import queue
 import random
+import socket
 import string
 import threading
 import time
@@ -721,11 +722,19 @@ class CloudClient:
 
     @staticmethod
     def _close(resp) -> None:
-        if resp is not None:
-            try:
-                resp.close()
-            except Exception:
-                pass
+        """關掉串流。另一條執行緒可能正卡在 resp.readline() 等資料：直接 close() 會等到下一筆資料
+        （Firebase 大約 30 秒才送一次 keep-alive）才回來，關狗時整個畫面就卡住、背景變黑。
+        所以先把底下的 socket shutdown，讀的那邊馬上醒來，close() 就不會等。"""
+        if resp is None:
+            return
+        try:
+            resp.fp.raw._sock.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            resp.close()
+        except Exception:
+            pass
 
     def _restart_home(self) -> None:
         self._home_wake.set()

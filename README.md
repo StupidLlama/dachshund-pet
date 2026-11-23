@@ -95,6 +95,17 @@ py main.py
 - 本機資料：`%APPDATA%\DachshundPet\cloud.json`
 - Firebase Realtime Database（免費方案）。安全規則 `firebase/database.rules.json` 由 `tools/build_rules.py` 產生
 
+## v0.5 大便、掃把、零食碗 💩🧹（製作中）
+
+| 功能 | 怎麼用 |
+|---|---|
+| 大便 | 狗每 30~60 分鐘（隨機）大一次，有 5 種稀有度；留在桌面上，最多 10 坨。右鍵 → Play → Go potty 可以馬上大一次 |
+| 掃把 | 右鍵 → Broom：掃把跟著滑鼠，碰到的大便都會掃掉（一次可以掃很多），掃完自己收起來 |
+| 零食碗 | 右鍵 → Treat bowl：碗放在狗前面，狗跑去吃；吃了會更快想大便 |
+
+新動畫（咬清單、推清單、汪、叼東西、嚇一跳、陪讀、打呼、吃、大便、頭暈、追尾巴、聞地板）畫好後放進 `assets/<名字>/` 就會自動用，還沒畫的照舊。
+描圖模板：`py tools/make_template.py`；畫好的整張圖用 `py tools/slice_sheet.py 你的圖.png` 自動切好。
+
 ## 自訂圖示
 
 把正方形、透明背景的 `icon.png`（建議 512×512）放進 `assets/`，重開後系統匣和桌面捷徑就會換成它。

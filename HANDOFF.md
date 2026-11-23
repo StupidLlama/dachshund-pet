@@ -1,4 +1,6 @@
-# 交接文件 — 臘腸狗桌寵 v0.4.3 → v0.5
+# 交接文件 — 臘腸狗桌寵 v0.4.6 → v0.5（進行中）
+
+> **最新現況（2026-11-16）**：v0.5 的程式已經寫好放進資料夾（大便 + 稀有度、掃把、零食碗、12 個新動畫的接口），**還沒 commit / push、Evan 還沒實測、新圖還沒畫**。細節看最下面「v0.5（2026-11-16）」一節，下一個對話從那節的「接下來」開始做。下面到「GitHub」之前都是 v0.4 以前的舊紀錄。
 
 > 開新對話時說：「照 桌面\dachshund-pet\HANDOFF.md 繼續做 v0.5」。Claude 會連上電腦直接改資料夾，不用傳 zip。
 >
@@ -421,6 +423,92 @@ Evan 的回饋：電腦沒有快速回覆、手機 / 電腦對話不同步、要
 - Actions 打包時依 tag 改寫 `pet/version.py`；多跑 `tests/test_updater.py`
 - ⚠ tag v0.4.5 打在加更新功能**之前**的 commit，所以 v0.4.4、v0.4.5 的 exe 都沒有更新功能，要手動下載一次 v0.4.6，之後就會自動問。發版前先 `git log --oneline -3` 確認 tag 打在最新的 commit
 - **Enter 修正**：訊息視窗裡的快捷按鈕和 Send 都 `setAutoDefault(False)`，Enter 只送輸入框（之前 Enter 會順便按到第一個快捷訊息 "Miss you!"）
+
+## v0.5（2026-11-16，Evan 用 iPad 遙控，程式寫好、等圖和實測）
+目標：Evan 要多畫動畫；加大便（有稀有度，之後的版本做收集）、掃把、零食碗。打呼聲音、手機推播、餵零食的「肚子餓」都**沒做**。
+
+### Evan 的答題卡
+| 項目 | 決定 |
+|---|---|
+| 新動畫 | A~L 12 個全畫（見下表），交一張 sprite sheet，Claude 切 |
+| 草圖 | 要 → 已給 `v05_template.png`（描圖模板） |
+| 大便 | 有稀有度（之後版本可以收集稀有的）；留在桌面；**最多 10 坨** |
+| 多久一次 | **隨機 30~60 分鐘，吃了零食會加速** |
+| 清理 | 右鍵選單拿**掃把**，一次可以掃很多 |
+| 零食 | 右鍵選單拿**零食碗**；零食和碗 Evan 自己畫 |
+| 圖 | 大便、掃把、碗、零食都是 Evan 畫（現在是程式畫的草圖頂替） |
+
+**Claude 自己決定的（Evan 沒回答，可以改）**：稀有度 5 級和機率（Common 60 / Uncommon 25 / Rare 10 / Epic 4 / Legendary 1，`poop_rules.RARITIES`）；番茄鐘進行中（專心和休息）不大便、專心中不能給零食；吃一次零食 = 剩下的時間減半、最少還要等 60 秒；滿 10 坨時狗憋著（不會再大），掃掉就會大；零食畫 3 種；掃把「碰到就掃掉」不用點；Play 選單多一個「Go potty」（馬上大一次，方便測試）。
+
+### 新動畫（`dog_model.OPTIONAL`）— 有圖才用，沒圖照舊
+全部「不分方向」、朝右畫（往左程式自動鏡像），放 `assets/<名字>/frame_01.png ...`。`SpriteLibrary.has(name)` = 有沒有圖；`PetWindow._a(新, 舊)` 選動畫。沒有圖時**不會**用草圖頂替，而是照以前的湊法。
+| 代號 | 資料夾 | 格數 | 用在哪 | 沒圖時 |
+|---|---|---|---|---|
+| A | `tug` | 4 | 咬清單（`list_bite` 第 1 格、`list_tug` 正著播 7fps） | run 第 2 格 / run 倒著播 |
+| B | `push` | 4 | 推清單（`list_nudge` 第 1 格、`list_push`） | run |
+| C | `bark` | 4 | 收到訊息「汪」那一跳（`_msg_bark`） | happy |
+| D | `carry` | 6 | 叼滑鼠（`prank_carry`；嘴巴位置用 `MOUTH["right"/"left"]`） | walk（8 方向） |
+| E | `startle` | 3 | 嚇一跳（`startle()` 的 hop） | held 第 1 格 |
+| F | `study` | 4 | 番茄鐘專心時坐在旁邊（`pomo_sit`） | sit |
+| G | `snore` | 4 | 睡覺（`_set_anim` 把 sleep 換成 snore） | sleep（2 格） |
+| H | `eat` | 6 | 吃零食（`eat`） | sniff → idle |
+| I | `poop` | 6 | 大便（`poop`） | sit |
+| J | `dizzy` | 4 | 頭暈（有圖就不畫程式的星星） | sit + 星星 |
+| K | `spin` | 8 | 追尾巴（播 2~3 圈） | walk 8 方向輪播 |
+| L | `sniff` | 4 | 聞地板、追到游標後聞（`sniff`、`nose`） | idle |
+- A、B、D、H 一定要**正側面朝右**，而且對準模板上的紅點（程式照這些點算位置：`BITE`、`NOSE`、`MOUTH`、`EAT_REACH`、`POOP_BEHIND`，都在 `pet_window.py` 上面）。換圖後位置不準就改這些常數
+- `dog_model.py` 多了 12 個草圖姿勢（`_dog()` 是比較自由的站姿、`_pitch()` 讓頭上下轉），只給描圖用
+
+### 描圖模板、切圖
+- `tools/sheet_layout.py`：版面（8 欄 × 9 列、每格 320 → 2560×2880），模板和切圖共用。列：tug+push / bark+study / snore+dizzy / sniff+startle / carry+treat_01,02 / eat+treat_03+bowl / poop+broom / spin / 5 個稀有度的大便
+- `py tools/make_template.py` → `sketches/v05_template.png`（Claude 已經在對話裡傳給 Evan 一份）
+- `py tools/slice_sheet.py Evan的圖.png` → 動作切到 `assets/<動作>/frame_XX.png`；道具裁掉透明邊後放 `assets/items/`：`poop_common.png`…`poop_legendary.png`、`broom.png`（刷頭在下面中間 = 游標位置）、`bowl.png`（空碗）、`treat_01.png`…（隨機挑一個放在碗上）。空的格子跳過；白底的圖會自動去白底
+- ⚠ 稀有度的圖**不要**放 `assets/poop/`，那是 I 動畫的資料夾（放進去會被當成動畫的格子）
+
+### 大便、掃把、零食碗
+- `pet/poop_rules.py`（不依賴 Qt）：`RARITIES`、`roll_rarity()`、`PoopClock`（倒數秒數，只在狗開著時走；`fed()` 減半）。可調：`POOP_MIN_SEC` / `POOP_MAX_SEC` / `POOP_MAX` / `FED_FACTOR` / `FED_MIN_SEC`
+- `pet/yard.py`：`PoopWindow`、`BroomWindow`、`BowlWindow`（都是滑鼠穿透的小視窗，沒圖時程式畫草圖：大便顏色跟稀有度、稀有的有亮晶晶）+ `Yard`（管理、`tick()` 每幀跑、存檔）。可調：`POOP_SIZE`、`BROOM_SIZE`、`BOWL_SIZE`、`SWEEP_RADIUS`、`BROOM_IDLE_SEC`（20 秒沒掃到自己收）、`BROOM_DONE_SEC`
+- `pet_window.py`「v0.5」那段：`_tick_yard`、`_can_poop`（只在 `POOP_FROM` 這些悠閒狀態、沒番茄鐘、沒訊息、沒滿、碗裡沒零食時）、`start_poop` → 狀態 `poop`（2.6 秒）→ 大便落在屁股後面 0.30S → 稀有的會冒愛心說「Rare poop!」；`toggle_broom`、`_on_swept`（全掃完說 All clean!）；`start_treat` → 碗放在前面 1.1S（靠牆就放另一邊）→ `treat_go` → `eat`（2.8 秒）→ 碗 1.5 秒後消失、倒數減半。吃到一半被拎走，放下後 `_choose_next` 會叫牠回去吃。`poop` / `treat_go` / `eat` 都在 `HANDS_OFF`（點了沒反應、訊息先排隊，但可以拎走）
+- 疊放：大便、碗在最下面；掃把在最上面（`Yard.raise_floor()` / `raise_top()`，`_raise_all` 會叫）
+- 設定檔新欄位：`poops`（桌面上的 [x, y, 稀有度]，重開還在）、`poop_in`（還要幾秒）、`poop_log`（`made` / `swept` 各稀有度的次數 → **之後做收集就從這裡開始**）
+- 選單（`app.show_menu`）：Play →「Go potty」；「Treat bowl」；「Broom (N to sweep)」/「Put the broom away」
+- 測試：`python3 tests/test_v05.py`（假 PySide6；規則、時間到 → 大便、重開還在、搬清單 / 番茄鐘時憋著、最多 10 坨、掃把一次掃 10 坨、零食碗、12 個新動畫有圖 / 沒圖）。**`.github/workflows/release.yml` 還沒加這個測試**（遠端工具不能寫這個檔）：push 的時候在雲端 clone 裡，`python tests/test_updater.py` 那行下面加一行 `python tests/test_v05.py`。舊的 4 個測試檔都還是全過
+
+### 2026-11-18：Evan 交了第一批圖
+- Evan 只畫了一部分，叫 Claude 幫他決定沒畫的用什麼。他的圖不是照模板大小匯出（1640×2360 白底，模板縮小放在裡面），Claude 量出格子位置（左 460、上 601.1、每格 139.6 px）手動切，去白底、去白邊、放大到 320。腳底對齊舊圖（y≈209）
+- **有畫的**：`tug` 4、`push` 4、`bark` 2（bark 速度改成 6 fps）、`sniff` 3、`spin` 8；道具：5 種稀有度大便、骨頭 / 雞腿 / 飼料、碗、掃把（`assets/items/`）；頭暈只畫了**星星** → `assets/effects/dizzy_01~04.png`，程式把它畫在 sit 的頭上（`sprites.effects`、`pet_window` 的 `DIZZY_FPS`），沒有星星圖才畫程式的星星
+- **沒畫、Claude 決定的代替**：study → sit、snore → sleep、startle → held 第 1 格、carry → walk、eat → Evan 的 sniff、poop → sit（都是原本 `_a()` 的 fallback，不用改程式）
+- 道具改成「照畫的比例」：320 px 格子 = 狗的 S（`yard.DRAWN_CELL`），所以大便有大有小（Common 很小、Legendary 很大），碗約 0.6S 寬、掃把約 0.8S 高。碗比較大 → `EAT_REACH` 改 0.48
+- 預覽頁（Artifact）：https://claude.ai/artifact/V4WULsRRF3Kx4Kj2uNeZnR ，原始檔在雲端 `/home/claude/v5/page/`（template.html + build.py，下次對話不會在，要重做就照這裡的描述）
+
+### 2026-11-18 深夜 ~ 11-19：Evan 的修改
+- 追尾巴方向反了 → `assets/spin` 8 格倒過來
+- 睡覺的 z：Evan 畫在 sleep 圖裡，狗往左時會鏡像 → 圖裡的 z 擦掉（原圖在 `assets_original/sleep`），改成程式用 EvanHand 寫（`pet_window.SLEEP_Z`，不跟著鏡像）
+- 嚇一跳：改用 idle 小跳（`STARTLE_JUMP = 300`，原本 held 第 1 格、460）
+- **發光 + 零食效果**（答題卡：1 灰/綠/藍/紫/金、光暈小一點；2 零食每次隨機抽稀有度；3 效果 = 更快大便、跑比較快、稀有大便機率；4 每種零食固定一種效果 + 稀有度越高越強越久；5 5~30 分鐘；6 狗也要發光）
+  - `poop_rules.py`：`RARITY_GLOW`、`TREATS`（treat_01 骨頭 = run、treat_02 雞腿 = luck、treat_03 飼料 = poop）、`EFFECTS`（圖示、吃完說的話、Common~Legendary 強度：run ×1.15~2、luck 稀有權重 ×1.5~6、poop 倒數 ×1.5~4）、`EFFECT_MIN = (5,10,15,20,30)`、`Buffs`（比較稀有就換、一樣就重新計時、比較低就不理；存在設定檔 `buffs`）、`roll_rarity(luck=)`、`PoopClock.tick(dt, speed)`
+  - `yard.py`：`paint_glow()`（放射漸層，`GLOW_SIZE = 0.62`，Legendary 一明一暗）、`paint_sparkles()`（Epic 3 顆、Legendary 5 顆）；大便、碗上的零食都會發光；`BowlWindow.fill()` 抽零食和稀有度；`Yard.bowl_eaten()` 回傳 (效果, 稀有度) 並加 buff
+  - `pet_window.py`：`_move_toward` 和走路動畫速度 × run；吃完說效果的話；放碗時說「Rare Bone!」；有效果時狗身上發光（`BUFF_GLOW`，最稀有的顏色）+ 頭上小圓圖示（`_paint_buff_icons`，Segoe UI Emoji：⚡🍀💩）
+  - 吃零食本來就會讓大便倒數減半（不管哪種），飼料的效果是另外再加速
+  - 測試：test_v05 第 7 段
+- 11-19：大便、碗、零食縮成畫的 60%（`yard.POOP_SCALE`、`BOWL_SCALE`），`EAT_REACH` 改 0.42；追尾巴第 5、6 格頭和身體中間的白底清掉
+- 11-19：掃把會卡 → 原因是掃把跟著狗的計時器（平常 30 fps）走，而且每一幀都重畫透明視窗。改成掃把自己的計時器 `broom_timer`（`BROOM_TICK_MS = 8`，PreciseTimer），`Yard.broom_step()` 只在位置變了才 move、角度變超過 0.5° 才重畫
+- 11-19：掃把改成「握在中間」：`BroomWindow.GRIP_AT = 0.45`（圖高 45% 那一列的柄中間 = 游標），掃把繞握的點轉（往右拖刷頭往左落後，`SWING`、`SWING_MAX = 35°`），掃大便看的是刷頭 `head_at()`（圖下面 25% 的中心），不是游標
+- 11-19：**關狗時卡住、背景變黑**：原因是 `cloud.stop()` 在主執行緒 `resp.close()` Firebase 串流，而串流執行緒正卡在 `readline()`（同一把鎖），close 要等下一個 keep-alive（約 30 秒）才回來；這段時間 Windows 判定程式沒回應，透明視窗畫成黑色。修法：`CloudClient._close()` 先 `socket.shutdown()` 再 close（在雲端實測 5.5 秒 → 0 秒）；`app.quit()` 一開始先把所有視窗和系統匣藏起來
+
+### 接下來
+1. **問 Evan 實測結果**（下面「要請 Evan 確認的」），修好
+2. Evan 交 sprite sheet → `tools/slice_sheet.py` 切 → `tools/defringe.py` 去白邊 → 做預覽頁給他看（像 v0.1.4 那樣）→ 影子不對就用 Shadow Picker / `assets/shadows.json`（新動畫的 key 就是資料夾名字）→ 對位不準就調 `BITE` / `NOSE` / `MOUTH` / `EAT_REACH`
+3. commit + push（做法見「GitHub」），改 README 版本號，發 `v0.5.0` tag（Actions 會打包、自動更新會通知）
+4. 還沒做、之後再問 Evan：大便收集頁（稀有度圖鑑）、打呼聲音、陪讀夥伴（study pal）方向、v0.4.3 剩下的答題卡（Google / Email 登入等）
+
+### 要請 Evan 確認的（Claude 看不到透明視窗）
+1. 右鍵 → Play → Go potty：狗蹲下（現在用 sit 頂替）→ 屁股後面出現一坨；位置、大小（`POOP_SIZE`）對不對
+2. 多按幾次 Go potty 到 10 坨：第 11 次狗說「Too messy! Sweep first!」
+3. 右鍵 → Broom：掃把跟著游標、左右移動會歪；掃過去大便會滑走消失，可以一次掃一排；全部掃完說「All clean! Thanks!」，掃把自己收起來；掃把會不會擋到點東西（應該不會，滑鼠穿透）
+4. 右鍵 → Treat bowl：碗出現在狗前面、狗跑過去吃（現在用 idle 頂替）、吃完碗消失；鼻子有沒有對到碗（`EAT_REACH`）
+5. 關掉再開：沒掃的大便還在原位
+6. 原本的功能（清單、番茄鐘、訊息）有沒有被影響
 
 ## GitHub（2026-10-19 起）
 - Repo：**https://github.com/StupidLlama/dachshund-pet**（Public，分支 `main`）

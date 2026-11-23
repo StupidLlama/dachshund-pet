@@ -44,8 +44,10 @@ from .bubble import Bubble, MsgBubble
 from .dog_model import ANIMS, DIR_ANGLE, DIRS8, ELEVATION_DEG, FRONT_ANGLE, GROUND_Y, angle_to_dir
 from .mood import Mood
 from .pomodoro import Pomodoro, fmt_mmss
-from .settings import Settings
+from .settings import Settings, assets_dir
 from .sprites import SpriteLibrary
+from .poop_rules import EFFECTS, RARITY_GLOW, TREATS
+from .yard import RARITY_KEYS, RARITY_LABEL, Yard, paint_glow
 
 ACTIVITY = {
     "calm":   {"idle": (5.0, 12.0), "walk_p": 0.35, "speed": 55.0, "play": 0.6},
@@ -99,6 +101,22 @@ MSG_RUN_SPEED = 240.0       # 跑去螢幕中間的速度（px/s，以 160px 狗
 ALERT_RED = QColor("#E2553B")
 ALERT_SIZE = 0.36           # 「!」字的大小（× S）
 ALERT_THICK = 0.0           # 「!」加粗多少（× S）；0 = 字型原本的粗細（Evan 選的），想加粗改 0.035
+
+# ---- v0.5 大便、零食碗（計時、稀有度、掃把在 yard.py）
+POOP_SEC = 2.6              # 蹲多久
+POOP_BEHIND = 0.30          # 大便落在屁股後面多遠（× S）
+POOP_FROM = {"idle", "sit", "walk", "happy", "nose", "sniff"}   # 這些狀態下才會去大便
+EAT_SEC = 2.8               # 吃多久
+TREAT_DIST = 1.1            # 零食碗放在狗前面多遠（× S）
+EAT_REACH = 0.42            # 吃的時候，碗中心在腳底點前面多遠（× S）；鼻子（sniff 圖，約 0.30S）伸進碗的前緣
+STARTLE_JUMP = 300          # 嚇一跳往上跳的初速（Evan：idle 跳一下就好）
+SLEEP_Z = [(0.64, 0.24, 0.085, "z"), (0.72, 0.16, 0.12, "Z")]   # 睡覺的 z Z：(x, y 底線, 字高 × S, 字)；用 Evan 的字型、不跟著狗鏡像
+BROOM_TICK_MS = 8           # 掃把每 8 ms 跟一次游標（約 120 次/秒）
+BUFF_GLOW = 0.55            # 吃了零食時狗身上光暈的半徑（× 狗圖的大小）
+DIZZY_FPS = 6               # Evan 畫的頭暈星星（assets/effects/dizzy_*.png）每秒幾格
+YARD_STATES = {"poop", "treat_go", "eat"}
+FAST_STATES |= {"treat_go"}
+HANDS_OFF |= YARD_STATES
 
 
 def _ease_io(k: float) -> float:
@@ -240,6 +258,18 @@ class PetWindow(QWidget):
         self.seen_fn: Callable[[dict], None] = lambda m: None
         self.notify_fn: Callable[[str, str], None] = lambda title, text: None
 
+        # v0.5 大便、掃把、零食碗
+        self.yard = Yard(assets_dir(), self.S, settings)
+        self.yard.stack_fn = self._raise_all
+        # 掃把用自己的計時器：狗平常只有 30 fps，掃把跟著游標要更快才不會卡
+        self.broom_timer = QTimer(self)
+        if hasattr(self.broom_timer, "setTimerType"):
+            self.broom_timer.setTimerType(Qt.PreciseTimer)
+        self.broom_timer.setInterval(BROOM_TICK_MS)
+        self.broom_timer.timeout.connect(self._tick_broom)
+        self._broom_last = time.monotonic()
+        self.treat_side = 1
+
         center = QGuiApplication.primaryScreen().availableGeometry().center()
         self.gx, self.gy = float(center.x()), float(center.y())
         c = QCursor.pos()
@@ -308,7 +338,18 @@ class PetWindow(QWidget):
         self.frame_lock = lock
         self._set_anim(anim or state)
 
+    def _has(self, anim: str) -> bool:
+        """v0.5 新動畫（dog_model.OPTIONAL）Evan 畫好了沒。"""
+        has = getattr(self.sprites, "has", None)
+        return bool(has(anim)) if has else False
+
+    def _a(self, new: str, old: str) -> str:
+        """有新動畫的圖就用新的，沒有就照舊用原本湊的動作。"""
+        return new if self._has(new) else old
+
     def _set_anim(self, anim: str) -> None:
+        if anim == "sleep":
+            anim = self._a("snore", "sleep")                # 睡覺：有打呼的圖就用
         if anim != self.anim:
             self.anim_t = 0.0
         self.anim = anim
@@ -335,7 +376,7 @@ class PetWindow(QWidget):
         if wobble:                                  # 頭暈：走路歪來歪去
             a = math.sin(self.state_t * 5.0) * 0.7
             ux, uy = ux * math.cos(a) - uy * math.sin(a), ux * math.sin(a) + uy * math.cos(a)
-        step = min(dist, speed * self.k * dt)
+        step = min(dist, speed * self.yard.buffs.value("run") * self.k * dt)   # 吃了骨頭跑比較快
         self.gx += ux * step
         self.gy += uy * step
         self._set_direction(angle_to_dir(dx, dy))
@@ -437,13 +478,15 @@ class PetWindow(QWidget):
         now = time.monotonic()
         dt = min(0.1, now - self._last)
         self._last = now
-        self.anim_t += dt * self.anim_speed
+        run = self.yard.buffs.value("run") if self.anim in ("walk", "run", "carry") else 1.0
+        self.anim_t += dt * self.anim_speed * run
         self.state_t += dt
         self._sense(dt, now)
         getattr(self, f"_update_{self.state}")(dt)
         self._update_fx(dt)
         self._tick_pomo(dt, now)
         self._tick_msgs(now)
+        self._tick_yard(dt)
         if self.mood.enabled and self.mood.tick(dt, now - self.last_interaction):
             self.save_mood()
         self._place()
@@ -495,6 +538,9 @@ class PetWindow(QWidget):
         self._set_state("idle", random.uniform(*self._act["idle"]))
 
     def _choose_next(self) -> None:
+        if self.yard.bowl_full and self.msg_cur is None and not self.msg_seq:   # 碗裡還有零食：先去吃
+            self._go_treat()
+            return
         if self.pomo.active or self.pomo_pending:            # 番茄鐘：回到番茄旁邊乖乖坐著
             self._go_pomo_spot()
             return
@@ -703,7 +749,7 @@ class PetWindow(QWidget):
         tx, ty = self._clamp_point(c.x() - mx, c.y() - my)
         if self._move_toward(tx, ty, self._act["speed"] * 2.4, dt):
             self.facing_left = d == "left"
-            self._set_state("nose", 1.8, anim="idle")
+            self._set_state("nose", 1.8, anim=self._a("sniff", "idle"))
             self.mood.change(1)
             self.say("Sniff sniff")
 
@@ -721,7 +767,7 @@ class PetWindow(QWidget):
             dist = random.uniform(200, 420) * self.k
             self.target = self._clamp_point(self.gx + math.cos(ang) * dist, self.gy + math.sin(ang) * dist)
             self.prank_last_set = None
-            self._set_state("prank_carry", 5.0, anim="walk")
+            self._set_state("prank_carry", 5.0, anim=self._a("carry", "walk"))
             self.setCursor(Qt.ArrowCursor)
             self.say("Hehe", "#8E44AD", 1.0)
 
@@ -732,7 +778,10 @@ class PetWindow(QWidget):
             self._prank_release(yanked=True)
             return
         arrived = self.target is None or self._move_toward(*self.target, self._act["speed"] * 1.3, dt)
-        mx, my = self._mouth_offset(self.direction)
+        d = self.direction
+        if self.anim == "carry":                            # carry 只有側面的圖：嘴巴照左 / 右算
+            d = "left" if self.facing_left else "right"
+        mx, my = self._mouth_offset(d)
         pos = QPoint(int(round(self.gx + mx)), int(round(self.gy + my)))
         QCursor.setPos(pos)
         self.prank_last_set = pos
@@ -758,6 +807,10 @@ class PetWindow(QWidget):
             self.zoom_targets.pop(0)
 
     def _update_spin(self, dt: float) -> None:
+        if self.anim == "spin":                             # 有追尾巴的圖：直接播，播完就結束
+            if self.state_t >= self.state_dur:
+                self.dizzy(2.0) if random.random() < 0.5 else self._set_state("happy", 1.2)
+            return
         step = int(self.state_t / 0.085)
         if step >= self.spin_steps:
             if random.random() < 0.5:
@@ -775,7 +828,7 @@ class PetWindow(QWidget):
             if self._move_toward(*self.target, self._act["speed"] * 0.35, dt):
                 self.target = None
                 self.state_dur = self.state_t + random.uniform(0.8, 1.6)
-                self._set_anim("idle")
+                self._set_anim(self._a("sniff", "idle"))
                 self.say("Sniff...", life=1.0)
         elif self.state_t >= self.state_dur:
             self.sniff_left -= 1
@@ -852,18 +905,18 @@ class PetWindow(QWidget):
             self.pet()
 
     def startle(self) -> None:
-        """嚇一跳：held 第 1 格跳起來。"""
+        """嚇一跳：站著（idle）小跳一下（有 startle 的圖就用）。"""
         self._touch()
         self.target = None
         self.startle_ready = time.monotonic() + 3.0
         self.say("!", "#C0392B", 1.0)
-        self.lift_v = -460 * self.k
+        self.lift_v = -STARTLE_JUMP * self.k
         self.after_hop = lambda: self._set_state("sit", random.uniform(2, 4))
-        self._set_state("hop", anim="held", lock=0)
+        self._set_state("hop", anim=self._a("startle", "idle"))
 
     def dizzy(self, dur: float = 4.0) -> None:
         self.target = None
-        self._set_state("dizzy", dur, anim="sit")
+        self._set_state("dizzy", dur, anim=self._a("dizzy", "sit"))
 
     def belly_up(self) -> None:
         """翻肚，等你揉。"""
@@ -910,14 +963,18 @@ class PetWindow(QWidget):
         self.spin_dir = random.choice([1, -1])
         self.spin_i = -1
         self._spin_start = DIRS8.index(self.direction) if self.direction in DIRS8 else 0
-        self._set_state("spin", anim="walk", speed=1.5)
+        if self._has("spin"):
+            n, fps, _ = ANIMS["spin"]
+            self._set_state("spin", random.choice([2, 3]) * n / fps, anim="spin")
+        else:
+            self._set_state("spin", anim="walk", speed=1.5)
 
     def start_sniff(self) -> None:
         if not self._free():
             return
         self.target = None
         self.sniff_left = random.randint(3, 5)
-        self._set_state("sniff", random.uniform(0.6, 1.2), anim="idle")
+        self._set_state("sniff", random.uniform(0.6, 1.2), anim=self._a("sniff", "idle"))
         self.say("Sniff...", life=1.0)
 
     def sit(self) -> None:
@@ -978,7 +1035,9 @@ class PetWindow(QWidget):
         self._raise_all()
 
     def _raise_all(self) -> None:
-        """疊放順序（Evan 定的，由下到上）：其他（番茄、泡泡、訊息泡泡）< 待辦清單 < 輸入框 < 狗。"""
+        """疊放順序（Evan 定的，由下到上）：其他（番茄、泡泡、訊息泡泡）< 待辦清單 < 輸入框 < 狗。
+        v0.5：大便、零食碗在最下面；掃把在最上面。"""
+        self.yard.raise_floor()
         for w in (self.tomato_win, self.bubble, self.msg_bubble):
             if w is not None and w.isVisible():
                 w.raise_()
@@ -987,6 +1046,7 @@ class PetWindow(QWidget):
             if self.todo_win.strip.isVisible():
                 self.todo_win.strip.raise_()
         self.raise_()
+        self.yard.raise_top()
 
     def toggle_list(self) -> None:
         """點紅標籤：收著 → 拉出來；開著 → 推回去。"""
@@ -1032,7 +1092,9 @@ class PetWindow(QWidget):
         self._set_state("list_go", anim="run")
         self._raise_all()
 
-    def _tug_frame(self, t: float, reverse: bool) -> int:
+    def _tug_frame(self, t: float, reverse: bool, anim: str = "run") -> int:
+        if anim != "run":                                   # v0.5 tug / push 的圖：照順序正著播
+            return int(t * TUG_FPS) % len(self.sprites.frames[(anim, "front")])
         n = len(self.sprites.frames[("run", "right")])
         i = int(t * TUG_FPS) % n
         return n - 1 - i if reverse else i
@@ -1054,8 +1116,13 @@ class PetWindow(QWidget):
             self.target = None
             self._set_direction("right")
             if self.list_job["mode"] == "pull":
-                self._set_state("list_bite", BITE_SEC, anim="run", lock=1)   # run 第 2 格：頭往前
+                if self._has("tug"):
+                    self._set_state("list_bite", BITE_SEC, anim="tug", lock=0)
+                else:
+                    self._set_state("list_bite", BITE_SEC, anim="run", lock=1)   # run 第 2 格：頭往前
                 self.say("Grr!", life=0.7)
+            elif self._has("push"):
+                self._set_state("list_nudge", NUDGE_SEC, anim="push", lock=0)
             else:
                 self._set_state("list_nudge", NUDGE_SEC, anim="run", lock=1)
 
@@ -1064,14 +1131,15 @@ class PetWindow(QWidget):
             j = self.list_job
             j["x0"] = self.gx
             j["x1"] = j["sr"] - j["W"] - j["T"] / 2 - BITE[0] * self.S
-            self._set_state("list_tug", PULL_SEC, anim="run", lock=self._tug_frame(0, True))
+            anim = self._a("tug", "run")
+            self._set_state("list_tug", PULL_SEC, anim=anim, lock=self._tug_frame(0, True, anim))
 
     def _update_list_tug(self, dt: float) -> None:
-        """面向右、run 倒著播，往左一下一下拖；清單左邊緣 = 狗嘴 x + 標籤寬 / 2。"""
+        """面向右、run 倒著播（有 tug 的圖就播 tug），往左一下一下拖；清單左邊緣 = 狗嘴 x + 標籤寬 / 2。"""
         j = self.list_job
         k = min(1.0, self.state_t / PULL_SEC)
         self.gx = j["x0"] + (j["x1"] - j["x0"]) * self._yank(k)
-        self.frame_lock = self._tug_frame(self.state_t, True)
+        self.frame_lock = self._tug_frame(self.state_t, True, self.anim)
         self.todo_win.set_left(self.gx + BITE[0] * self.S + j["T"] / 2)
         if k >= 1:
             self.todo_win.set_open(True)
@@ -1082,14 +1150,14 @@ class PetWindow(QWidget):
             j = self.list_job
             j["x0"] = self.gx
             j["x1"] = j["sr"] - NOSE * self.S
-            self._set_state("list_push", PUSH_SEC, anim="run", lock=0)
+            self._set_state("list_push", PUSH_SEC, anim=self._a("push", "run"), lock=0)
 
     def _update_list_push(self, dt: float) -> None:
-        """run 正著播慢慢往右，清單左邊緣 = 狗鼻子 x。"""
+        """run 正著播（有 push 的圖就播 push）慢慢往右，清單左邊緣 = 狗鼻子 x。"""
         j = self.list_job
         k = min(1.0, self.state_t / PUSH_SEC)
         self.gx = j["x0"] + (j["x1"] - j["x0"]) * _ease_io(k)
-        self.frame_lock = self._tug_frame(self.state_t, False)
+        self.frame_lock = self._tug_frame(self.state_t, False, self.anim)
         self.todo_win.set_left(self.gx + NOSE * self.S)
         if k >= 1:
             self.todo_win.set_open(False)
@@ -1219,13 +1287,13 @@ class PetWindow(QWidget):
             self.tomato_win.show()
             self._raise_all()
             self.say("Wind it up!", life=1.0)
-        self._set_state("pomo_sit", anim="sit" if self.pomo.phase == "focus" else "idle")
+        self._set_state("pomo_sit", anim=self._a("study", "sit") if self.pomo.phase == "focus" else "idle")
 
     def _update_pomo_sit(self, dt: float) -> None:
         if not self.pomo.active:
             self._enter_idle()
             return
-        want = "sit" if self.pomo.phase == "focus" else "idle"   # 專心坐著，休息時站起來
+        want = self._a("study", "sit") if self.pomo.phase == "focus" else "idle"   # 專心坐著，休息時站起來
         if self.anim != want:
             self._set_anim(want)
 
@@ -1353,7 +1421,7 @@ class PetWindow(QWidget):
         self._play_bark()
         self.lift_v = -280 * self.k
         self.after_hop = self._show_next_msg
-        self._set_state("hop", anim="happy")
+        self._set_state("hop", anim=self._a("bark", "happy"))
 
     def _show_next_msg(self) -> None:
         self.after_hop = None
@@ -1432,6 +1500,129 @@ class PetWindow(QWidget):
             p.strokePath(path, QPen(QColor(30, 27, 22), thick + 2 * ink, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             p.strokePath(path, QPen(ALERT_RED, thick, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         p.fillPath(path, ALERT_RED)
+
+    # ================================================================== v0.5 大便、掃把、零食碗
+    def _tick_yard(self, dt: float) -> None:
+        cx, cy = self._prev_cursor
+        swept = self.yard.tick(dt, cx, cy)
+        if swept:
+            self._on_swept(swept)
+        if self.yard.clock.due and self._can_poop():
+            self.start_poop()
+
+    def _can_poop(self) -> bool:
+        """時間到了也要等方便的時候：番茄鐘、訊息、搬清單、被拎著時都先憋著；桌面滿 10 坨也憋著。"""
+        return (self.state in POOP_FROM and not self.yard.full
+                and not self.pomo.active and self.pomo_pending is None
+                and self.msg_cur is None and not self.msg_seq and not self.yard.bowl_full)
+
+    def start_poop(self) -> None:
+        """蹲下來大便（選單「Go potty」也會叫這個）。"""
+        if not self._free() or self.state in HANDS_OFF:
+            return
+        if self.yard.full:
+            self.say("Too messy! Sweep first!", life=1.8)
+            return
+        self.target = None
+        self.zoom_targets = []
+        self._set_state("poop", POOP_SEC, anim=self._a("poop", "sit"))
+        self.say("...", life=1.0)
+
+    def _update_poop(self, dt: float) -> None:
+        if self.state_t < self.state_dur:
+            return
+        side = 1 if self.facing_left else -1                # 落在屁股後面
+        x, y = self._clamp_point(self.gx + side * POOP_BEHIND * self.S, self.gy)
+        self.yard.clock.reset()
+        rarity = self.yard.add_poop(x, y)
+        if rarity in (None, "common"):
+            self.say("Phew!", life=1.2)
+        else:
+            self.add_hearts(1 + RARITY_KEYS.index(rarity))
+            self.say(f"{RARITY_LABEL[rarity]} poop!", life=2.2)
+        if self.stay:
+            self._set_state("idle", 1.5)
+        else:
+            self.start_walk()
+
+    def _on_swept(self, swept: list) -> None:
+        """掃把掃掉了大便：冒愛心；掃到稀有的、或全部掃完會說話。"""
+        self.add_hearts(min(3, len(swept)))
+        best = max(swept, key=RARITY_KEYS.index)
+        if not self.yard.live_poops:
+            self.say("All clean! Thanks!", life=1.8)
+        elif best != "common":
+            self.say(f"Bye, {RARITY_LABEL[best]} poop!", life=1.4)
+
+    def toggle_broom(self) -> None:
+        """選單：拿出 / 收起掃把。掃把跟著游標，碰到的大便都會掃掉。"""
+        if not self.yard.broom_on and not self.yard.live_poops:
+            self.say("Nothing to sweep!", life=1.4)
+            return
+        if self.yard.toggle_broom():
+            self.say("Sweep sweep!", life=1.2)
+            self._broom_last = time.monotonic()
+            self.broom_timer.start()
+            self._tick_broom()
+        else:
+            self.broom_timer.stop()
+
+    def _tick_broom(self) -> None:
+        now = time.monotonic()
+        dt = min(0.05, max(1e-3, now - self._broom_last))
+        self._broom_last = now
+        c = QCursor.pos()
+        swept = self.yard.broom_step(dt, float(c.x()), float(c.y()))
+        if swept:
+            self._on_swept(swept)
+        if not self.yard.broom_on:
+            self.broom_timer.stop()
+
+    def start_treat(self) -> None:
+        """選單：拿出零食碗，放在狗前面的地上，狗跑去吃。吃了會更快想大便。"""
+        if not self._free() or self.state in HANDS_OFF:
+            return
+        if self._msg_focus_mode():
+            self.say("Shh... focusing", life=0.9)
+            return
+        self._touch()
+        if not self.yard.bowl_full:
+            rect = self._ground_rect(self._screen_here())
+            side = -1 if self.facing_left else 1
+            bx = self.gx + side * TREAT_DIST * self.S
+            if not rect.left() <= bx <= rect.right():       # 前面沒位置：放另一邊
+                side = -side
+                bx = self.gx + side * TREAT_DIST * self.S
+            key, rarity = self.yard.show_bowl(bx, self.gy)
+            self.say(f"{RARITY_LABEL[rarity]} {TREATS[key][0]}!", life=1.4)
+        self._go_treat()
+
+    def _go_treat(self) -> None:
+        b = self.yard.bowl
+        self.treat_side = 1 if b.cx >= self.gx else -1
+        self.target = self._clamp_point(b.cx - self.treat_side * EAT_REACH * self.S, b.cy)
+        self.zoom_targets = []
+        self.lift = self.lift_v = 0.0
+        self._set_state("treat_go", 8.0, anim="run")
+
+    def _update_treat_go(self, dt: float) -> None:
+        if not self.yard.bowl_full:
+            self._enter_idle()
+            return
+        if self._move_toward(*self.target, max(self._act["speed"] * 2.2, 180.0), dt) or self.state_t > self.state_dur:
+            self.target = None
+            self._set_direction("right" if self.treat_side > 0 else "left")
+            self._set_state("eat", EAT_SEC, anim=self._a("eat", self._a("sniff", "idle")))
+            self.say("Nom nom!", life=1.2)
+
+    def _update_eat(self, dt: float) -> None:
+        if self.state_t >= self.state_dur:
+            kind, rarity = self.yard.bowl_eaten()
+            self.yard.save()
+            self._touch()
+            self.add_hearts(3 + RARITY_KEYS.index(rarity))
+            self.say(EFFECTS[kind][1], life=1.6)
+            self._set_state("happy", 1.4)
 
     # ================================================================== 滑鼠
     def mousePressEvent(self, e) -> None:
@@ -1543,6 +1734,24 @@ class PetWindow(QWidget):
         a = FRONT_ANGLE[self.anim]
         return 180.0 - a if self.facing_left else a
 
+    def _paint_buff_icons(self, p: QPainter, box: QRectF) -> None:
+        """頭上的效果小圖示：圓圈是稀有度的顏色，裡面是效果（⚡ 跑快、🍀 稀有大便、💩 快大便）。"""
+        items = sorted(self.yard.buffs.active.items(), key=lambda kv: list(EFFECTS).index(kv[0]))
+        r = self.S * 0.055
+        gap = r * 2.4
+        x0 = box.center().x() - gap * (len(items) - 1) / 2
+        y = max(r + 1, self._sprite_y() + box.top() - r * 1.6)
+        f = QFont("Segoe UI Emoji")
+        f.setPixelSize(max(8, int(r * 1.25)))
+        p.setFont(f)
+        for i, (kind, (rarity, _left)) in enumerate(items):
+            cx = x0 + i * gap
+            c = QColor(RARITY_GLOW[rarity])
+            p.setPen(QPen(QColor(43, 33, 24), 1.2))
+            p.setBrush(c)
+            p.drawEllipse(QPointF(cx, y), r, r)
+            p.drawText(QRectF(cx - r, y - r, 2 * r, 2 * r), Qt.AlignCenter, EFFECTS[kind][0])
+
     def _paint_shadow(self, p: QPainter) -> None:
         p.save()
         p.setPen(Qt.NoPen)
@@ -1615,11 +1824,31 @@ class PetWindow(QWidget):
         self._paint_shadow(p)
 
         px = self._current_pixmap()
-        p.drawPixmap(QPointF(0, self._sprite_y()), px)
         box = self._box(px)
+        top = self.yard.buffs.top()
+        if top:                                          # 吃了零食：身上發光（最稀有的那個效果的顏色）
+            paint_glow(p, box.center().x(), self._sprite_y() + box.center().y(),
+                       max(box.width(), box.height()) * BUFF_GLOW, top, self.anim_t)
+        p.drawPixmap(QPointF(0, self._sprite_y()), px)
+        if self.yard.buffs.active:
+            self._paint_buff_icons(p, box)
 
-        # 頭暈：頭上轉圈圈的星星
-        if self.state == "dizzy":
+        # 睡覺：z → z Z（字寫在圖外面，狗往左翻過去時字不會反過來）
+        if self.anim == "sleep":
+            n = 1 + int(self.anim_t * ANIMS["sleep"][1]) % len(SLEEP_Z)
+            p.setPen(QColor(43, 33, 24))
+            for u, v, h, ch in SLEEP_Z[:n]:
+                p.setFont(self._font(h * self.S, bold=False))
+                x = (1.0 - u if self.facing_left else u) * self.S
+                p.drawText(QPointF(x - h * self.S * 0.3, self._sprite_y() + v * self.S), ch)
+
+        # 頭暈：頭上轉圈圈的星星（有 dizzy 的圖就不畫，圖裡自己有；有 Evan 畫的星星 effects/dizzy_* 就用他的）
+        stars = (getattr(self.sprites, "effects", None) or {}).get("dizzy")
+        if self.state == "dizzy" and self.anim != "dizzy" and stars:
+            px = stars[int(self.state_t * DIZZY_FPS) % len(stars)]
+            p.drawPixmap(QPointF(box.center().x() - px.width() / 2,
+                                 self._sprite_y() + box.top() - px.height() * 0.75), px)
+        elif self.state == "dizzy" and self.anim != "dizzy":
             cx, cy = box.center().x(), self._sprite_y() + box.top() + 2
             for i in range(3):
                 a = self.state_t * 4.0 + i * 2 * math.pi / 3

@@ -189,7 +189,15 @@ class PetApp(QObject):
             play.addAction("Sniff the floor", self.pet.start_sniff)
         play.addAction("Chase my cursor", self.pet.start_chase)
         play.addAction("Steal my mouse", self.pet.start_prank)
+        play.addAction("Go potty", self.pet.start_poop)
         menu.addAction("Sleep", self.pet.sleep)
+        menu.addSeparator()
+        # v0.5：零食碗、掃把
+        yard = self.pet.yard
+        menu.addAction("Treat bowl", self.pet.start_treat)
+        n = len(yard.live_poops)
+        menu.addAction("Put the broom away" if yard.broom_on else (f"Broom ({n} to sweep)" if n else "Broom"),
+                       self.pet.toggle_broom)
         menu.addSeparator()
         self._list_pomo_actions(menu)
         self._msg_actions(menu)
@@ -552,9 +560,16 @@ class PetApp(QObject):
             self.tray.showMessage(title, text, self.tray.icon(), 6000)
 
     def quit(self) -> None:
+        # 先把所有視窗藏起來：後面收尾就算慢一點，桌面上也不會留下卡住、變黑的狗
+        for w in QApplication.topLevelWidgets():
+            w.hide()
+        if self.tray:
+            self.tray.hide()
+        QApplication.processEvents()
         if self.cloud is not None:
             self.cloud.stop()
         self.pet.save_mood()
+        self.pet.yard.save()                     # 桌面上的大便、下次大便還要多久
         self.todo.save()
         self.hotkey.unregister()
         if self.tray:
